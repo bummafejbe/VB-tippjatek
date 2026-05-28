@@ -138,15 +138,70 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
   </style>
 </head>
 <body>
-  <div id="screen-auth">Auth screen - Task 3</div>
-  <div id="screen-pending" hidden>Pending screen - Task 4</div>
-  <div id="screen-app" hidden>
-    <nav id="main-nav">Nav - Task 2</nav>
-    <div id="tab-matches">Meccsek - Task 7</div>
-    <div id="tab-pretournament" hidden>Elozetes tippek - Task 11</div>
-    <div id="tab-scoreboard" hidden>Ranglista - Task 13</div>
-    <div id="tab-admin" hidden>Admin - Task 14</div>
+  <div id="screen-auth">
+  <div class="auth-box">
+    <h1>&#x26BD; VB Tippjáték 2026</h1>
+    <p class="subtitle">Bejelentkezés vagy regisztráció</p>
+    <div id="form-login">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="email@example.com">
+      </div>
+      <div class="form-group">
+        <label>Jelszó</label>
+        <input type="password" id="login-password" placeholder="jelszó">
+      </div>
+      <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Bejelentkezés</button>
+      <p id="login-error" class="error-msg"></p>
+      <p class="auth-switch">
+        <span>Még nincs fiókod?</span>
+        <a onclick="showRegForm()"> Regisztráció &rarr;</a>
+      </p>
+    </div>
+    <div id="form-register" hidden>
+      <div class="form-group">
+        <label>Megjelenített név</label>
+        <input type="text" id="reg-name" placeholder="pl. Kiss Péter">
+      </div>
+      <div class="form-group">
+        <label>Felhasználónév</label>
+        <input type="text" id="reg-username" placeholder="pl. kispecc">
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="reg-email" placeholder="email@example.com">
+      </div>
+      <div class="form-group">
+        <label>Jelszó (min. 6 karakter)</label>
+        <input type="password" id="reg-password" placeholder="jelszó">
+      </div>
+      <button class="btn btn-primary" style="width:100%" onclick="doRegister()">Regisztráció</button>
+      <p id="reg-error" class="error-msg"></p>
+      <p class="auth-switch">
+        <span>Már van fiókod?</span>
+        <a onclick="showLoginForm()"> Bejelentkezés &rarr;</a>
+      </p>
+    </div>
   </div>
+</div>
+  <div id="screen-pending" hidden>
+  <div class="pending-box">
+    <div style="font-size:48px;margin-bottom:16px">&#x23F3;</div>
+    <h2>Kérelem beadva</h2>
+    <p>A regisztrációs kérelmed megkaptuk. Egy admin hamarosan jóváhagyja a hozzáférésed.</p>
+    <br>
+    <button class="btn btn-ghost" onclick="doLogout()">Kijelentkezés</button>
+  </div>
+</div>
+  <div id="screen-app" hidden>
+  <nav id="main-nav"></nav>
+  <div class="container">
+    <div id="tab-matches"></div>
+    <div id="tab-pretournament" hidden></div>
+    <div id="tab-scoreboard" hidden></div>
+    <div id="tab-admin" hidden></div>
+  </div>
+</div>
   <button id="info-btn" hidden onclick="showInfoModal()">i Info</button>
   <div id="info-modal" hidden>Info modal - Task 16</div>
 
@@ -173,6 +228,8 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
     let allMatches = {};
     let allTips = {};
     let allUsers = {};
+    let appConfig = {};
+    let allPretournament = {};
 
     // === SCREEN ROUTER ===
     const SCREENS = ['screen-auth', 'screen-pending', 'screen-app'];
@@ -233,7 +290,432 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
       return res.ok ? res.json() : null;
     }
 
-    // More JS added in Tasks 3-16
+    // === AUTH ===
+    function showLoginForm() {
+      document.getElementById('form-login').hidden = false;
+      document.getElementById('form-register').hidden = true;
+      document.getElementById('login-error').textContent = '';
+    }
+    function showRegForm() {
+      document.getElementById('form-login').hidden = true;
+      document.getElementById('form-register').hidden = false;
+      document.getElementById('reg-error').textContent = '';
+    }
+
+    function firebaseAuthError(code) {
+      const map = {
+        'auth/invalid-email': 'Érvénytelen email cím.',
+        'auth/user-not-found': 'Nem találtunk ilyen felhasználót.',
+        'auth/wrong-password': 'Hibás jelszó.',
+        'auth/invalid-credential': 'Hibás email vagy jelszó.',
+        'auth/email-already-in-use': 'Ez az email cím már foglalt.',
+        'auth/weak-password': 'A jelszó legalább 6 karakter legyen.',
+        'auth/too-many-requests': 'Túl sok próbálkozás. Várj egy percet.',
+      };
+      return map[code] || `Hiba: ${code}`;
+    }
+
+    async function doLogin() {
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      const errEl = document.getElementById('login-error');
+      errEl.textContent = '';
+      if (!email || !password) { errEl.textContent = 'Töltsd ki az összes mezőt.'; return; }
+      try {
+        await auth.signInWithEmailAndPassword(email, password);
+      } catch (e) {
+        errEl.textContent = firebaseAuthError(e.code);
+      }
+    }
+
+    async function doRegister() {
+      const name = document.getElementById('reg-name').value.trim();
+      const username = document.getElementById('reg-username').value.trim().toLowerCase();
+      const email = document.getElementById('reg-email').value.trim();
+      const password = document.getElementById('reg-password').value;
+      const errEl = document.getElementById('reg-error');
+      errEl.textContent = '';
+      if (!name || !username || !email || !password) { errEl.textContent = 'Töltsd ki az összes mezőt.'; return; }
+      if (password.length < 6) { errEl.textContent = 'A jelszó legalább 6 karakter legyen.'; return; }
+      try {
+        const cred = await auth.createUserWithEmailAndPassword(email, password);
+        const uid = cred.user.uid;
+        await fbPut(`users/${uid}`, {
+          displayName: name, username, email,
+          status: 'pending', createdAt: new Date().toISOString()
+        });
+        const admins = await fbGetNoAuth('admins');
+        if (!admins) {
+          await fbPut(`admins/${uid}`, true);
+        }
+      } catch (e) {
+        errEl.textContent = firebaseAuthError(e.code);
+      }
+    }
+
+    async function doLogout() {
+      clearInterval(apiPollTimer);
+      currentUser = null; currentUserData = null; isAdminUser = false;
+      allMatches = {}; allTips = {}; allUsers = {};
+      await auth.signOut();
+    }
+
+    // === USER LOADING ===
+    async function loadCurrentUser() {
+      const uid = currentUser.uid;
+      currentUserData = await fbGet(`users/${uid}`);
+      const adminEntry = await fbGet(`admins/${uid}`);
+      isAdminUser = adminEntry === true;
+      if (isAdminUser && currentUserData && currentUserData.status === 'pending') {
+        await fbPatch(`users/${uid}`, { status: 'active' });
+        currentUserData.status = 'active';
+      }
+    }
+
+    // === MAIN ROUTER ===
+    auth.onAuthStateChanged(async (user) => {
+      if (!user) {
+        showScreen('screen-auth');
+        return;
+      }
+      currentUser = user;
+      try {
+        await loadCurrentUser();
+      } catch (e) {
+        showScreen('screen-auth');
+        return;
+      }
+      if (!currentUserData) {
+        await doLogout();
+        return;
+      }
+      if (currentUserData.status === 'pending') {
+        showScreen('screen-pending');
+        return;
+      }
+      if (currentUserData.status === 'banned') {
+        document.getElementById('login-error').textContent = 'A fiókod tiltva van.';
+        await auth.signOut();
+        showScreen('screen-auth');
+        return;
+      }
+      await enterApp();
+    });
+
+    async function enterApp() {
+      buildNav();
+      showScreen('screen-app');
+      await loadAllData();
+      await seedMatchesIfNeeded();
+      showTab('tab-matches');
+      startAPIPolling();
+    }
+
+    function buildNav() {
+      const nav = document.getElementById('main-nav');
+      nav.innerHTML = `
+        <div class="nav-tab active" data-tab="tab-matches" onclick="showTab('tab-matches')">Meccsek</div>
+        <div class="nav-tab" data-tab="tab-pretournament" onclick="showTab('tab-pretournament')">Előzetes</div>
+        <div class="nav-tab" data-tab="tab-scoreboard" onclick="showTab('tab-scoreboard')">Ranglista</div>
+        ${isAdminUser ? '<div class="nav-tab" data-tab="tab-admin" onclick="showTab(\'tab-admin\')">Admin</div>' : ''}
+        <div class="nav-tab" onclick="doLogout()" style="max-width:60px">Ki</div>
+      `;
+      document.getElementById('tab-admin').hidden = !isAdminUser;
+    }
+
+    async function loadAllData() {
+      const [matchesRaw, tipsRaw, usersRaw, configRaw, pretournRaw] = await Promise.all([
+        fbGet('matches'),
+        fbGet('tips'),
+        fbGet('users'),
+        fbGet('config'),
+        fbGet('pretournament')
+      ]);
+      allMatches = matchesRaw || {};
+      allTips = tipsRaw || {};
+      allUsers = usersRaw || {};
+      appConfig = configRaw || {};
+      allPretournament = pretournRaw || {};
+    }
+
+    // === API SYNC ===
+    const FD_BASE = 'https://api.football-data.org/v4';
+    const WC_COMPETITION = 'WC';
+    const WC_SEASON = '2026';
+
+    async function fetchFromFD(endpoint) {
+      const apiKey = appConfig.apiKey;
+      if (!apiKey) return null;
+      try {
+        const res = await fetch(`${FD_BASE}${endpoint}`, {
+          headers: { 'X-Auth-Token': apiKey }
+        });
+        if (!res.ok) return null;
+        return res.json();
+      } catch { return null; }
+    }
+
+    async function seedMatchesIfNeeded() {
+      if (Object.keys(allMatches).length > 0) return;
+      if (!appConfig.apiKey) return;
+      const data = await fetchFromFD(`/competitions/${WC_COMPETITION}/matches?season=${WC_SEASON}`);
+      if (!data || !data.matches) return;
+      const toWrite = {};
+      for (const m of data.matches) {
+        toWrite[m.id] = {
+          home: m.homeTeam.name || 'TBD',
+          away: m.awayTeam.name || 'TBD',
+          datetime: m.utcDate,
+          group: m.group || m.stage || 'UNKNOWN',
+          resultHome: m.score && m.score.fullTime.home !== null ? m.score.fullTime.home : null,
+          resultAway: m.score && m.score.fullTime.away !== null ? m.score.fullTime.away : null,
+          resultOverride: false
+        };
+      }
+      await fbPut('matches', toWrite);
+      allMatches = toWrite;
+    }
+
+    async function syncResultsFromAPI() {
+      if (!appConfig.apiKey) return;
+      const data = await fetchFromFD(`/competitions/${WC_COMPETITION}/matches?season=${WC_SEASON}&status=FINISHED`);
+      if (!data || !data.matches) return;
+      for (const m of data.matches) {
+        const existing = allMatches[m.id];
+        if (!existing || existing.resultOverride) continue;
+        if (m.score.fullTime.home === null) continue;
+        const update = {
+          resultHome: m.score.fullTime.home,
+          resultAway: m.score.fullTime.away
+        };
+        if (m.homeTeam.name && existing.home !== m.homeTeam.name) update.home = m.homeTeam.name;
+        if (m.awayTeam.name && existing.away !== m.awayTeam.name) update.away = m.awayTeam.name;
+        await fbPatch(`matches/${m.id}`, update);
+        Object.assign(allMatches[m.id], update);
+      }
+    }
+
+    function startAPIPolling() {
+      clearInterval(apiPollTimer);
+      syncResultsFromAPI();
+      apiPollTimer = setInterval(syncResultsFromAPI, 5 * 60 * 1000);
+    }
+
+    // === RENDER: MATCHES ===
+    const GROUP_ORDER = [
+      'GROUP_A','GROUP_B','GROUP_C','GROUP_D','GROUP_E','GROUP_F',
+      'GROUP_G','GROUP_H','GROUP_I','GROUP_J','GROUP_K','GROUP_L',
+      'LAST_32','ROUND_OF_16','QUARTER_FINALS','SEMI_FINALS','THIRD_PLACE','FINAL'
+    ];
+    const GROUP_LABELS = {
+      GROUP_A:'A csoport', GROUP_B:'B csoport', GROUP_C:'C csoport',
+      GROUP_D:'D csoport', GROUP_E:'E csoport', GROUP_F:'F csoport',
+      GROUP_G:'G csoport', GROUP_H:'H csoport', GROUP_I:'I csoport',
+      GROUP_J:'J csoport', GROUP_K:'K csoport', GROUP_L:'L csoport',
+      LAST_32:'Nyolcaddöntő (R32)', ROUND_OF_16:'Tizenhatod döntő',
+      QUARTER_FINALS:'Negyeddöntő', SEMI_FINALS:'Elődöntő',
+      THIRD_PLACE:'Bronzmeccs', FINAL:'Döntő'
+    };
+
+    function formatDatetime(isoStr) {
+      const d = new Date(isoStr);
+      return d.toLocaleString('hu-HU', {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Budapest'
+      });
+    }
+
+    function isMatchLocked(match) {
+      return new Date() >= new Date(match.datetime);
+    }
+
+    function renderMatches() {
+      const el = document.getElementById('tab-matches');
+      const myTips = allTips[currentUser.uid] || {};
+      const grouped = {};
+      for (const [id, m] of Object.entries(allMatches)) {
+        const g = m.group || 'UNKNOWN';
+        if (!grouped[g]) grouped[g] = [];
+        grouped[g].push({ id, ...m });
+      }
+      for (const g of Object.keys(grouped)) {
+        grouped[g].sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+      }
+      let html = '';
+      for (const groupKey of GROUP_ORDER) {
+        if (!grouped[groupKey]) continue;
+        const label = GROUP_LABELS[groupKey] || groupKey;
+        html += `<div class="group-header">${label}</div>`;
+        for (const m of grouped[groupKey]) {
+          html += renderMatchCard(m, myTips[m.id] || null);
+        }
+      }
+      // Show matches with unknown group at end
+      for (const [groupKey, matches] of Object.entries(grouped)) {
+        if (GROUP_ORDER.includes(groupKey)) continue;
+        html += `<div class="group-header">${groupKey}</div>`;
+        for (const m of matches) {
+          html += renderMatchCard(m, myTips[m.id] || null);
+        }
+      }
+      if (!html) {
+        html = '<div class="card" style="text-align:center;color:var(--text2)">Nincsenek meccsek. Az admin adja meg az API kulcsot a beállításokban.</div>';
+      }
+      el.innerHTML = html;
+    }
+
+    function renderMatchCard(match, myTip) {
+      const locked = isMatchLocked(match);
+      const hasResult = match.resultHome !== null && match.resultAway !== null;
+      const uid = currentUser.uid;
+
+      let othersHtml = '';
+      if (locked) {
+        const tipRows = Object.entries(allTips)
+          .filter(([u]) => u !== uid)
+          .map(([u, tips]) => {
+            const t = tips[match.id];
+            const uname = (allUsers[u] && allUsers[u].displayName) || '???';
+            if (!t) return `<div class="other-tip-row"><span>${uname}</span><span class="tip-locked">Nem tippelt</span></div>`;
+            let pts = '';
+            if (hasResult) {
+              const p = calculateMatchPoints(t, match.resultHome, match.resultAway);
+              pts = `<span class="other-tip-points">+${p} pt</span>`;
+            }
+            return `<div class="other-tip-row"><span>${uname}</span><span class="other-tip-score">${t.home}&ndash;${t.away}</span>${pts}</div>`;
+          });
+        if (tipRows.length) {
+          othersHtml = `<div class="others-tips"><div class="others-tips-title">Mások tippjei</div>${tipRows.join('')}</div>`;
+        }
+      }
+
+      let tipHtml = '';
+      if (!locked) {
+        const h = myTip !== null ? myTip.home : '';
+        const a = myTip !== null ? myTip.away : '';
+        tipHtml = `
+          <div class="tip-row">
+            <input class="tip-input" type="number" min="0" max="20" id="tip-h-${match.id}" value="${h}" placeholder="0">
+            <span class="tip-separator">&ndash;</span>
+            <input class="tip-input" type="number" min="0" max="20" id="tip-a-${match.id}" value="${a}" placeholder="0">
+            <button class="btn btn-primary btn-sm" onclick="saveTip('${match.id}')">Mentés</button>
+            <span id="tip-status-${match.id}" class="tip-saved" style="display:none">&#x2713;</span>
+          </div>`;
+      } else if (myTip) {
+        let pts = '';
+        if (hasResult) {
+          const p = calculateMatchPoints(myTip, match.resultHome, match.resultAway);
+          pts = ` <span style="color:var(--accent2);font-weight:700">+${p} pt</span>`;
+        }
+        tipHtml = `<div class="tip-locked">Tipped: <strong>${myTip.home}&ndash;${myTip.away}</strong>${pts}</div>`;
+      } else {
+        tipHtml = `<div class="tip-locked" style="color:var(--danger)">Nem tippeltél erre a meccsre.</div>`;
+      }
+
+      const resultStr = hasResult ? `${match.resultHome}&ndash;${match.resultAway}` : '&ndash;';
+      const overrideBadge = match.resultOverride ? ' <span class="badge badge-override">Admin</span>' : '';
+
+      return `
+        <div class="match-card">
+          <div class="match-meta">
+            <span>${formatDatetime(match.datetime)}</span>
+            <span>${GROUP_LABELS[match.group] || match.group || ''}${overrideBadge}</span>
+          </div>
+          <div class="match-teams">
+            <div class="team-name">${match.home || 'TBD'}</div>
+            <div class="match-result">${resultStr}</div>
+            <div class="team-name away">${match.away || 'TBD'}</div>
+          </div>
+          ${tipHtml}
+          ${othersHtml}
+        </div>`;
+    }
+
+    // === TIP MANAGEMENT ===
+    async function saveTip(matchId) {
+      const match = allMatches[matchId];
+      if (!match) return;
+      if (isMatchLocked(match)) return;
+      const home = parseInt(document.getElementById(`tip-h-${matchId}`).value);
+      const away = parseInt(document.getElementById(`tip-a-${matchId}`).value);
+      if (isNaN(home) || isNaN(away) || home < 0 || away < 0) return;
+      const uid = currentUser.uid;
+      const tip = { home, away, submittedAt: new Date().toISOString() };
+      await fbPut(`tips/${uid}/${matchId}`, tip);
+      if (!allTips[uid]) allTips[uid] = {};
+      allTips[uid][matchId] = tip;
+      const statusEl = document.getElementById(`tip-status-${matchId}`);
+      if (statusEl) { statusEl.style.display = 'inline'; setTimeout(() => statusEl.style.display = 'none', 2000); }
+    }
+
+    // === SCORING ===
+    const POINTS = {
+      exactScore: 7,
+      correctWinner: 2,
+      diffPlusMinus1: 1,
+      totalPlusMinus1: 1,
+      groupQualifier: 2,
+      topScorer: 10,
+      winner: 15
+    };
+
+    function calculateMatchPoints(tip, resultHome, resultAway) {
+      if (tip == null) return 0;
+      if (resultHome == null || resultAway == null) return 0;
+      let pts = 0;
+      const tipDiff = tip.home - tip.away;
+      const realDiff = resultHome - resultAway;
+      const tipTotal = tip.home + tip.away;
+      const realTotal = resultHome + resultAway;
+      const tipResult = tipDiff > 0 ? 'H' : tipDiff < 0 ? 'A' : 'D';
+      const realResult = realDiff > 0 ? 'H' : realDiff < 0 ? 'A' : 'D';
+      if (tip.home === resultHome && tip.away === resultAway) pts += POINTS.exactScore;
+      if (tipResult === realResult) pts += POINTS.correctWinner;
+      if (tipResult === realResult && Math.abs(tipDiff - realDiff) <= 1) pts += POINTS.diffPlusMinus1;
+      if (Math.abs(tipTotal - realTotal) <= 1) pts += POINTS.totalPlusMinus1;
+      return pts;
+    }
+
+    function getGroupQualifiers(group) {
+      return (appConfig.groupQualifiers && appConfig.groupQualifiers[group]) || [];
+    }
+
+    function calculatePreTournamentPoints(pretip) {
+      if (!pretip) return 0;
+      let pts = 0;
+      if (pretip.groupTips) {
+        for (const [group, tippedTeams] of Object.entries(pretip.groupTips)) {
+          if (!Array.isArray(tippedTeams)) continue;
+          const actualQualifiers = getGroupQualifiers(group);
+          for (const team of tippedTeams) {
+            if (actualQualifiers.includes(team)) pts += POINTS.groupQualifier;
+          }
+        }
+      }
+      if (pretip.topScorer && appConfig.topScorer) {
+        if (pretip.topScorer.trim().toLowerCase() === appConfig.topScorer.trim().toLowerCase()) {
+          pts += POINTS.topScorer;
+        }
+      }
+      if (pretip.winner && appConfig.tournamentWinner) {
+        if (pretip.winner === appConfig.tournamentWinner) pts += POINTS.winner;
+      }
+      return pts;
+    }
+
+    function calculateUserTotal(uid) {
+      const myTips = allTips[uid] || {};
+      let total = 0;
+      for (const [matchId, match] of Object.entries(allMatches)) {
+        if (match.resultHome == null || match.resultAway == null) continue;
+        const tip = myTips[matchId];
+        if (!tip) continue;
+        total += calculateMatchPoints(tip, match.resultHome, match.resultAway);
+      }
+      total += calculatePreTournamentPoints(allPretournament && allPretournament[uid]);
+      return total;
+    }
+
+    // More JS added in Tasks 10-16
   </script>
 </body>
 </html>
