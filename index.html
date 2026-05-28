@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VB Tippjáték 2026</title>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <style>
+    /* CSS - Task 2 */
+  </style>
+</head>
+<body>
+  <div id="screen-auth">Auth screen - Task 3</div>
+  <div id="screen-pending" hidden>Pending screen - Task 4</div>
+  <div id="screen-app" hidden>
+    <nav id="main-nav">Nav - Task 2</nav>
+    <div id="tab-matches">Meccsek - Task 7</div>
+    <div id="tab-pretournament" hidden>Elozetes tippek - Task 11</div>
+    <div id="tab-scoreboard" hidden>Ranglista - Task 13</div>
+    <div id="tab-admin" hidden>Admin - Task 14</div>
+  </div>
+  <button id="info-btn" hidden onclick="showInfoModal()">i Info</button>
+  <div id="info-modal" hidden>Info modal - Task 16</div>
+
+  <script>
+    const FIREBASE_CONFIG = {
+      // FILL IN FROM FIREBASE CONSOLE: Project Settings > General > Your apps > Firebase SDK snippet
+      apiKey: "FILL_IN",
+      authDomain: "FILL_IN",
+      databaseURL: "FILL_IN",
+      projectId: "FILL_IN",
+      storageBucket: "FILL_IN",
+      messagingSenderId: "FILL_IN",
+      appId: "FILL_IN"
+    };
+    firebase.initializeApp(FIREBASE_CONFIG);
+    const auth = firebase.auth();
+    const FIREBASE_URL = FIREBASE_CONFIG.databaseURL;
+
+    // More JS added in Tasks 2-16
+  </script>
+</body>
+</html>
