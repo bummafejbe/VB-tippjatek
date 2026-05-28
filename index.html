@@ -7,7 +7,134 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <style>
-    /* CSS - Task 2 */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface2: #334155;
+  --accent: #38bdf8;
+  --accent2: #22c55e;
+  --danger: #ef4444;
+  --text: #f1f5f9;
+  --text2: #94a3b8;
+  --border: #334155;
+  --radius: 10px;
+}
+
+body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; min-height: 100vh; }
+
+/* Nav */
+#main-nav { display: flex; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+.nav-tab { flex: 1; padding: 14px 8px; text-align: center; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text2); border-bottom: 3px solid transparent; transition: .15s; }
+.nav-tab:hover { color: var(--text); }
+.nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* Container */
+.container { max-width: 680px; margin: 0 auto; padding: 16px; }
+
+/* Card */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+.card-header { font-size: 12px; color: var(--text2); margin-bottom: 10px; display: flex; justify-content: space-between; }
+
+/* Buttons */
+.btn { display: inline-block; padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; transition: .15s; }
+.btn-primary { background: var(--accent); color: #0f172a; }
+.btn-primary:hover { opacity: .85; }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text2); }
+.btn-ghost:hover { border-color: var(--text2); color: var(--text); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Forms */
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 6px; }
+.form-group input, .form-group select { width: 100%; padding: 10px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 14px; }
+.form-group input:focus, .form-group select:focus { outline: none; border-color: var(--accent); }
+
+/* Auth screen */
+#screen-auth { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.auth-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; width: 100%; max-width: 380px; }
+.auth-box h1 { font-size: 22px; margin-bottom: 6px; }
+.auth-box .subtitle { color: var(--text2); font-size: 13px; margin-bottom: 24px; }
+.auth-switch { margin-top: 16px; font-size: 13px; color: var(--text2); text-align: center; }
+.auth-switch a { color: var(--accent); cursor: pointer; text-decoration: none; }
+.error-msg { color: var(--danger); font-size: 13px; margin-top: 8px; }
+
+/* Pending screen */
+#screen-pending { display: flex; align-items: center; justify-content: center; min-height: 100vh; text-align: center; }
+.pending-box { max-width: 360px; }
+.pending-box h2 { font-size: 20px; margin-bottom: 10px; }
+.pending-box p { color: var(--text2); font-size: 14px; margin-bottom: 20px; }
+
+/* Match card */
+.match-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; }
+.match-meta { font-size: 11px; color: var(--text2); margin-bottom: 10px; }
+.match-teams { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.team-name { flex: 1; font-weight: 600; font-size: 15px; }
+.team-name.away { text-align: right; }
+.match-result { font-size: 18px; font-weight: 700; color: var(--accent); min-width: 50px; text-align: center; }
+.tip-row { display: flex; align-items: center; gap: 8px; }
+.tip-input { width: 48px; padding: 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 16px; font-weight: 700; text-align: center; }
+.tip-input:focus { outline: none; border-color: var(--accent); }
+.tip-separator { font-size: 18px; font-weight: 700; color: var(--text2); }
+.tip-saved { font-size: 12px; color: var(--accent2); }
+.tip-locked { font-size: 12px; color: var(--text2); }
+
+/* Others' tips */
+.others-tips { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+.others-tips-title { font-size: 11px; color: var(--text2); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .05em; }
+.other-tip-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 3px 0; }
+.other-tip-score { font-weight: 700; color: var(--accent); }
+.other-tip-points { font-size: 11px; color: var(--accent2); }
+
+/* Group header */
+.group-header { font-size: 12px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .08em; padding: 16px 0 8px; border-top: 1px solid var(--border); margin-top: 8px; }
+.group-header:first-child { border-top: none; margin-top: 0; }
+
+/* Scoreboard */
+.scoreboard-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.scoreboard-table th { text-align: left; padding: 8px 10px; font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--border); }
+.scoreboard-table td { padding: 10px; border-bottom: 1px solid var(--border); }
+.scoreboard-table tr:last-child td { border-bottom: none; }
+.rank { font-weight: 700; color: var(--text2); width: 30px; }
+.player-name { font-weight: 600; }
+.score-pts { font-weight: 700; color: var(--accent); text-align: right; }
+
+/* Admin */
+.admin-section { margin-bottom: 28px; }
+.admin-section h3 { font-size: 14px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 12px; }
+.user-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+.user-info { flex: 1; }
+.user-info .name { font-weight: 600; font-size: 14px; }
+.user-info .email { font-size: 12px; color: var(--text2); }
+.user-actions { display: flex; gap: 6px; }
+.badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: .05em; }
+.badge-admin { background: #7c3aed33; color: #a78bfa; }
+.badge-override { background: #ef444433; color: var(--danger); }
+
+/* Results admin */
+.result-row { display: grid; grid-template-columns: 1fr auto 1fr auto; align-items: center; gap: 8px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+.result-team { font-size: 13px; font-weight: 600; }
+.result-team.away { text-align: right; }
+.result-inputs { display: flex; align-items: center; gap: 6px; }
+
+/* Info modal */
+#info-modal { position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
+.info-panel { background: var(--surface); border-radius: var(--radius) var(--radius) 0 0; max-width: 680px; width: 100%; max-height: 85vh; overflow-y: auto; padding: 24px 20px 40px; }
+.info-panel h2 { font-size: 18px; margin-bottom: 16px; }
+.info-panel h3 { font-size: 14px; color: var(--accent); margin: 18px 0 8px; text-transform: uppercase; letter-spacing: .05em; }
+.info-panel p, .info-panel li { font-size: 14px; color: var(--text2); line-height: 1.6; }
+.info-panel ul { padding-left: 18px; }
+.info-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+.info-table th { text-align: left; padding: 6px 8px; color: var(--text2); border-bottom: 1px solid var(--border); }
+.info-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.info-table td:last-child { text-align: right; font-weight: 700; color: var(--accent); }
+
+/* Info button */
+#info-btn { position: fixed; bottom: 20px; right: 20px; z-index: 50; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); border-radius: 50%; width: 44px; height: 44px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .15s; }
+#info-btn:hover { background: var(--surface); color: var(--text); }
   </style>
 </head>
 <body>
@@ -38,7 +165,75 @@
     const auth = firebase.auth();
     const FIREBASE_URL = FIREBASE_CONFIG.databaseURL;
 
-    // More JS added in Tasks 2-16
+    // === STATE ===
+    let currentUser = null;
+    let currentUserData = null;
+    let isAdminUser = false;
+    let apiPollTimer = null;
+    let allMatches = {};
+    let allTips = {};
+    let allUsers = {};
+
+    // === SCREEN ROUTER ===
+    const SCREENS = ['screen-auth', 'screen-pending', 'screen-app'];
+    function showScreen(id) {
+      SCREENS.forEach(s => { document.getElementById(s).hidden = s !== id; });
+      const inApp = id === 'screen-app';
+      document.getElementById('info-btn').hidden = !inApp;
+    }
+
+    const TABS = ['tab-matches', 'tab-pretournament', 'tab-scoreboard', 'tab-admin'];
+    function showTab(id) {
+      TABS.forEach(t => { document.getElementById(t).hidden = t !== id; });
+      document.querySelectorAll('.nav-tab').forEach(el => {
+        el.classList.toggle('active', el.dataset.tab === id);
+      });
+      if (id === 'tab-matches') renderMatches();
+      if (id === 'tab-pretournament') renderPreTournament();
+      if (id === 'tab-scoreboard') renderScoreboard();
+      if (id === 'tab-admin') renderAdminUsers();
+    }
+
+    // === FIREBASE REST HELPERS ===
+    async function fbGet(path) {
+      const token = await currentUser.getIdToken();
+      const res = await fetch(`${FIREBASE_URL}/${path}.json?auth=${token}`);
+      if (!res.ok) throw new Error(`fbGet ${path}: ${res.status}`);
+      return res.json();
+    }
+
+    async function fbPut(path, val) {
+      const token = await currentUser.getIdToken();
+      const res = await fetch(`${FIREBASE_URL}/${path}.json?auth=${token}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(val)
+      });
+      if (!res.ok) throw new Error(`fbPut ${path}: ${res.status}`);
+      return res.json();
+    }
+
+    async function fbPatch(path, val) {
+      const token = await currentUser.getIdToken();
+      const res = await fetch(`${FIREBASE_URL}/${path}.json?auth=${token}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(val)
+      });
+      if (!res.ok) throw new Error(`fbPatch ${path}: ${res.status}`);
+      return res.json();
+    }
+
+    async function fbDelete(path) {
+      const token = await currentUser.getIdToken();
+      const res = await fetch(`${FIREBASE_URL}/${path}.json?auth=${token}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`fbDelete ${path}: ${res.status}`);
+    }
+
+    async function fbGetNoAuth(path) {
+      const res = await fetch(`${FIREBASE_URL}/${path}.json`);
+      return res.ok ? res.json() : null;
+    }
+
+    // More JS added in Tasks 3-16
   </script>
 </body>
 </html>
