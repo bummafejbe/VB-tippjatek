@@ -1,6 +1,34 @@
 {
   "rules": {
-    ".read": "auth != null",
-    ".write": "auth != null"
+    "config": {
+      ".read": "auth != null",
+      ".write": "root.child('admins').child(auth.uid).val() === true"
+    },
+    "admins": {
+      ".read": "auth != null",
+      ".write": "root.child('admins').child(auth.uid).val() === true"
+    },
+    "users": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "root.child('admins').child(auth.uid).val() === true || auth.uid === $uid"
+      }
+    },
+    "matches": {
+      ".read": "auth != null",
+      ".write": "root.child('admins').child(auth.uid).val() === true"
+    },
+    "tips": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth.uid === $uid"
+      }
+    },
+    "pretournament": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth.uid === $uid"
+      }
+    }
   }
 }

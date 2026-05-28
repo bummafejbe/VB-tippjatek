@@ -203,7 +203,49 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
   </div>
 </div>
   <button id="info-btn" hidden onclick="showInfoModal()">i Info</button>
-  <div id="info-modal" hidden>Info modal - Task 16</div>
+  <div id="info-modal" hidden>
+  <div class="info-panel" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2>&#x26BD; VB Tippjáték &mdash; Játékleírás</h2>
+      <button class="btn btn-ghost btn-sm" onclick="hideInfoModal()">&#x2715; Bezárás</button>
+    </div>
+    <h3>A játék célja</h3>
+    <p>Tippeld meg a 2026-os FIFA Világbajnokság meccseinek végeredményét! Gyűjts pontokat a pontos tippekért, és kerülj a ranglista élére.</p>
+    <h3>Mikor lehet tippelni?</h3>
+    <ul>
+      <li>Egy meccsre addig tippelhetsz, amíg el nem kezdődik.</li>
+      <li>A meccs kezdete után a tipp lezárul és mások tippjei is láthatóvá válnak.</li>
+      <li><strong>Előzetes tippek</strong> (csoporttovábbjutók, gólkirály, győztes): a VB első meccsének kezdetéig adhatók be.</li>
+    </ul>
+    <h3>Pontrendszer &mdash; meccstippek</h3>
+    <p>A tippek stackelhetők, egy meccsre max. 11 pont szerezhető:</p>
+    <table class="info-table">
+      <thead><tr><th>Kategória</th><th>Feltétel</th><th>Pont</th></tr></thead>
+      <tbody>
+        <tr><td>Pontos végeredmény</td><td>Tipp == valóság</td><td>+7</td></tr>
+        <tr><td>Helyes győztes / döntetlen</td><td>Helyes kimenetel</td><td>+2</td></tr>
+        <tr><td>Gólkülönbség &#xB1;1, jó irányban</td><td>|tipp diff &minus; valós diff| &le; 1 és irány egyezik</td><td>+1</td></tr>
+        <tr><td>Összgólszám &#xB1;1</td><td>|tipp total &minus; valós total| &le; 1</td><td>+1</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:10px;font-size:13px"><strong>Példa:</strong> Tipped 2&ndash;1, valóság 3&ndash;1 &rarr; +2 (győztes) +1 (diff ±1) +1 (total ±1) = <strong>4 pont</strong></p>
+    <p style="margin-top:6px;font-size:13px"><strong>Példa:</strong> Tipped 2&ndash;1, valóság 2&ndash;1 &rarr; +7 +2 +1 +1 = <strong>11 pont</strong></p>
+    <h3>Pontrendszer &mdash; előzetes tippek</h3>
+    <table class="info-table">
+      <thead><tr><th>Kategória</th><th>Pont</th></tr></thead>
+      <tbody>
+        <tr><td>Csoporttovábbjutó eltalálva (csapatonként)</td><td>+2</td></tr>
+        <tr><td>Gólkirály eltalálva</td><td>+10</td></tr>
+        <tr><td>Végső győztes eltalálva</td><td>+15</td></tr>
+      </tbody>
+    </table>
+    <h3>Mások tippjeinek láthatósága</h3>
+    <p>Más játékosok tippjeit csak a meccs megkezdése után láthatod. Addig a saját tipped is privát.</p>
+    <div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--border);font-size:12px;color:var(--text2)">
+      VB Tippjáték 2026 &bull; Jó szórakozást! &#x26BD;
+    </div>
+  </div>
+</div>
 
   <script>
     const FIREBASE_CONFIG = {
@@ -715,7 +757,450 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
       return total;
     }
 
-    // More JS added in Tasks 10-16
+    // === PRE-TOURNAMENT ===
+    const GROUPS = ['A','B','C','D','E','F','G','H','I','J','K','L'];
+
+    function isPreTournamentOpen() {
+      if (!appConfig.pretournamentDeadline) return true;
+      return new Date() < new Date(appConfig.pretournamentDeadline);
+    }
+
+    function getTeamsForGroup(group) {
+      const teams = new Set();
+      for (const m of Object.values(allMatches)) {
+        if (m.group === `GROUP_${group}`) {
+          if (m.home && m.home !== 'TBD') teams.add(m.home);
+          if (m.away && m.away !== 'TBD') teams.add(m.away);
+        }
+      }
+      return [...teams].sort();
+    }
+
+    function getAllTeams() {
+      const teams = new Set();
+      for (const m of Object.values(allMatches)) {
+        if (m.home && m.home !== 'TBD') teams.add(m.home);
+        if (m.away && m.away !== 'TBD') teams.add(m.away);
+      }
+      return [...teams].sort();
+    }
+
+    function renderPreTournament() {
+      const el = document.getElementById('tab-pretournament');
+      const open = isPreTournamentOpen();
+      const myPretip = (allPretournament && allPretournament[currentUser.uid]) || {};
+      const allTeams = getAllTeams();
+      const deadlineStr = appConfig.pretournamentDeadline
+        ? `Határidő: ${formatDatetime(appConfig.pretournamentDeadline)}`
+        : '';
+
+      let groupHtml = '';
+      for (const g of GROUPS) {
+        const teams = getTeamsForGroup(g);
+        if (teams.length === 0) continue;
+        const saved = (myPretip.groupTips && myPretip.groupTips[g]) || [];
+        const opts = teams.map(t =>
+          `<option value="${t}">${t}</option>`
+        ).join('');
+        groupHtml += `
+          <div class="form-group">
+            <label>${g} csoport &mdash; 1. továbbjutó</label>
+            <select id="pre-g${g}-1" ${!open ? 'disabled' : ''}><option value="">Válassz...</option>${opts}</select>
+          </div>
+          <div class="form-group">
+            <label>${g} csoport &mdash; 2. továbbjutó</label>
+            <select id="pre-g${g}-2" ${!open ? 'disabled' : ''}><option value="">Válassz...</option>${opts}</select>
+          </div>`;
+      }
+
+      const teamOpts = allTeams.map(t =>
+        `<option value="${t}">${t}</option>`
+      ).join('');
+
+      el.innerHTML = `
+        <div style="padding-bottom:80px">
+          <div class="card" style="margin-bottom:16px">
+            <div style="font-size:13px;color:var(--text2)">${open ? '&#x23F3; ' + deadlineStr : '&#x1F512; A tippelési határidő lejárt. A tippjeid megtekinthetők.'}</div>
+          </div>
+          <div class="admin-section">
+            <h3>Csoporttovábbjutók</h3>
+            ${groupHtml}
+          </div>
+          <div class="admin-section">
+            <h3>Különleges tippek</h3>
+            <div class="form-group">
+              <label>Gólkirály neve (szabad szöveges)</label>
+              <input type="text" id="pre-topscorer" placeholder="pl. Kylian Mbappé"
+                value="${myPretip.topScorer || ''}" ${!open ? 'disabled' : ''}>
+            </div>
+            <div class="form-group">
+              <label>Végső győztes csapat</label>
+              <select id="pre-winner" ${!open ? 'disabled' : ''}>
+                <option value="">Válassz...</option>${teamOpts}
+              </select>
+            </div>
+          </div>
+          ${open ? '<button class="btn btn-primary" onclick="savePreTournamentTip()" style="width:100%">Előzetes tippek mentése</button>' : ''}
+          <div id="pretip-status" style="margin-top:10px;color:var(--accent2);font-size:13px"></div>
+        </div>`;
+
+      // Restore saved values after innerHTML set
+      for (const g of GROUPS) {
+        const saved = (myPretip.groupTips && myPretip.groupTips[g]) || [];
+        const sel1 = document.getElementById(`pre-g${g}-1`);
+        const sel2 = document.getElementById(`pre-g${g}-2`);
+        if (sel1 && saved[0]) sel1.value = saved[0];
+        if (sel2 && saved[1]) sel2.value = saved[1];
+      }
+      const winnerSel = document.getElementById('pre-winner');
+      if (winnerSel && myPretip.winner) winnerSel.value = myPretip.winner;
+    }
+
+    async function savePreTournamentTip() {
+      if (!isPreTournamentOpen()) return;
+      const groupTips = {};
+      for (const g of GROUPS) {
+        const sel1 = document.getElementById(`pre-g${g}-1`);
+        const sel2 = document.getElementById(`pre-g${g}-2`);
+        if (!sel1 || !sel2) continue;
+        const v1 = sel1.value, v2 = sel2.value;
+        if (v1 || v2) groupTips[g] = [v1, v2].filter(Boolean);
+      }
+      const topScorer = document.getElementById('pre-topscorer').value.trim();
+      const winner = document.getElementById('pre-winner').value;
+      const uid = currentUser.uid;
+      const data = { groupTips, topScorer, winner, submittedAt: new Date().toISOString() };
+      await fbPut(`pretournament/${uid}`, data);
+      if (!allPretournament) allPretournament = {};
+      allPretournament[uid] = data;
+      const s = document.getElementById('pretip-status');
+      if (s) s.textContent = '&#x2713; Mentve';
+    }
+
+    // === RENDER: SCOREBOARD ===
+    function renderScoreboard() {
+      const el = document.getElementById('tab-scoreboard');
+      const activeUsers = Object.entries(allUsers)
+        .filter(([, u]) => u.status === 'active')
+        .map(([uid, u]) => {
+          const total = calculateUserTotal(uid);
+          const tippedCount = Object.keys(allTips[uid] || {}).length;
+          return { uid, displayName: u.displayName, total, tippedCount };
+        })
+        .sort((a, b) => b.total - a.total || b.tippedCount - a.tippedCount);
+
+      if (activeUsers.length === 0) {
+        el.innerHTML = '<div class="card" style="text-align:center;color:var(--text2)">Még nincsenek aktív játékosok.</div>';
+        return;
+      }
+
+      const rows = activeUsers.map((u, i) => {
+        const isMe = u.uid === currentUser.uid;
+        return `<tr ${isMe ? 'style="background:var(--surface2)"' : ''}>
+          <td class="rank">${i + 1}.</td>
+          <td class="player-name">${u.displayName}${isMe ? ' <span style="color:var(--text2);font-size:11px">(te)</span>' : ''}</td>
+          <td style="color:var(--text2);font-size:12px;text-align:center">${u.tippedCount} tipp</td>
+          <td class="score-pts">${u.total} pt</td>
+        </tr>`;
+      }).join('');
+
+      el.innerHTML = `
+        <div class="card" style="padding:0;overflow:hidden">
+          <table class="scoreboard-table">
+            <thead><tr>
+              <th>#</th><th>Játékos</th><th style="text-align:center">Tippek</th><th style="text-align:right">Pont</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+    }
+
+    // === RENDER: ADMIN - USERS ===
+    function renderAdminUsers() {
+      const el = document.getElementById('tab-admin');
+      const pending = Object.entries(allUsers).filter(([, u]) => u.status === 'pending');
+      const active = Object.entries(allUsers).filter(([, u]) => u.status === 'active');
+
+      const subNav = `<div style="display:flex;gap:8px;margin-bottom:16px">
+        <button class="btn btn-primary btn-sm">Felhasználók</button>
+        <button class="btn btn-ghost btn-sm" onclick="renderAdminResults()">Eredmények</button>
+        <button class="btn btn-ghost btn-sm" onclick="renderAdminConfig()">Beállítások</button>
+      </div>`;
+
+      const pendingHtml = pending.length ? pending.map(([uid, u]) => `
+        <div class="user-row">
+          <div class="user-info">
+            <div class="name">${u.displayName} <span style="color:var(--text2);font-size:12px">@${u.username}</span></div>
+            <div class="email">${u.email}</div>
+          </div>
+          <div class="user-actions">
+            <button class="btn btn-primary btn-sm" onclick="approveUser('${uid}')">Elfogad</button>
+            <button class="btn btn-danger btn-sm" onclick="rejectUser('${uid}')">Elutasít</button>
+          </div>
+        </div>`).join('') : '<div style="color:var(--text2);font-size:13px;padding:8px">Nincs várakozó kérelem.</div>';
+
+      const activeHtml = active.map(([uid, u]) => {
+        const isMe = uid === currentUser.uid;
+        const isAdmin = u._isAdmin;
+        return `
+          <div class="user-row">
+            <div class="user-info">
+              <div class="name">${u.displayName} ${isAdmin ? '<span class="badge badge-admin">Admin</span>' : ''}</div>
+              <div class="email">${u.email}</div>
+            </div>
+            <div class="user-actions">
+              ${!isMe ? `<button class="btn btn-ghost btn-sm" onclick="toggleAdminRole('${uid}')">Admin toggle</button>` : ''}
+              ${!isMe ? `<button class="btn btn-danger btn-sm" onclick="banUser('${uid}')">Kirúg</button>` : ''}
+            </div>
+          </div>`;
+      }).join('');
+
+      el.innerHTML = subNav + `
+        <div class="admin-section">
+          <h3>Várakozó kérelmek (${pending.length})</h3>
+          ${pendingHtml}
+        </div>
+        <div class="admin-section">
+          <h3>Aktív felhasználók (${active.length})</h3>
+          ${activeHtml}
+        </div>`;
+
+      // Load admin flags for display
+      loadAdminFlags();
+    }
+
+    let _loadingAdminFlags = false;
+    async function loadAdminFlags() {
+      if (_loadingAdminFlags) return;
+      _loadingAdminFlags = true;
+      // Mark which active users are admins (for badge display)
+      const active = Object.entries(allUsers).filter(([, u]) => u.status === 'active');
+      for (const [uid] of active) {
+        try {
+          const isAdmin = await fbGet(`admins/${uid}`);
+          if (allUsers[uid]) allUsers[uid]._isAdmin = isAdmin === true;
+        } catch {}
+      }
+      _loadingAdminFlags = false;
+      // Re-render to show badges (only if still on admin tab)
+      const el = document.getElementById('tab-admin');
+      if (el && !el.hidden) renderAdminUsers();
+    }
+
+    async function approveUser(uid) {
+      await fbPatch(`users/${uid}`, { status: 'active' });
+      allUsers[uid].status = 'active';
+      renderAdminUsers();
+    }
+
+    async function rejectUser(uid) {
+      await fbPatch(`users/${uid}`, { status: 'banned' });
+      allUsers[uid].status = 'banned';
+      renderAdminUsers();
+    }
+
+    async function banUser(uid) {
+      if (uid === currentUser.uid) return;
+      await fbPatch(`users/${uid}`, { status: 'banned' });
+      allUsers[uid].status = 'banned';
+      renderAdminUsers();
+    }
+
+    async function toggleAdminRole(uid) {
+      const current = await fbGet(`admins/${uid}`);
+      if (current === true) {
+        await fbDelete(`admins/${uid}`);
+        if (allUsers[uid]) allUsers[uid]._isAdmin = false;
+      } else {
+        await fbPut(`admins/${uid}`, true);
+        if (allUsers[uid]) allUsers[uid]._isAdmin = true;
+      }
+      renderAdminUsers();
+    }
+
+    // === RENDER: ADMIN - RESULTS ===
+    function renderAdminResults() {
+      const el = document.getElementById('tab-admin');
+      const subNav = `<div style="display:flex;gap:8px;margin-bottom:16px">
+        <button class="btn btn-ghost btn-sm" onclick="renderAdminUsers()">Felhasználók</button>
+        <button class="btn btn-primary btn-sm">Eredmények</button>
+        <button class="btn btn-ghost btn-sm" onclick="renderAdminConfig()">Beállítások</button>
+      </div>`;
+
+      const sortedMatches = Object.entries(allMatches)
+        .sort(([, a], [, b]) => new Date(a.datetime) - new Date(b.datetime));
+
+      const rows = sortedMatches.map(([id, m]) => {
+        const overrideBadge = m.resultOverride ? `<span class="badge badge-override">Admin</span>` : '';
+        const rH = m.resultHome !== null && m.resultHome !== undefined ? m.resultHome : '';
+        const rA = m.resultAway !== null && m.resultAway !== undefined ? m.resultAway : '';
+        return `
+          <div class="match-card">
+            <div class="match-meta">
+              <span>${formatDatetime(m.datetime)} &mdash; ${GROUP_LABELS[m.group] || m.group || ''}</span>
+              <span>${overrideBadge}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <span style="flex:1;font-weight:600">${m.home || 'TBD'}</span>
+              <div class="result-inputs">
+                <input class="tip-input" type="number" min="0" id="res-h-${id}" value="${rH}" placeholder="&ndash;">
+                <span class="tip-separator">&ndash;</span>
+                <input class="tip-input" type="number" min="0" id="res-a-${id}" value="${rA}" placeholder="&ndash;">
+              </div>
+              <span style="flex:1;font-weight:600;text-align:right">${m.away || 'TBD'}</span>
+              <button class="btn btn-primary btn-sm" onclick="saveResultOverride('${id}')">Mentés</button>
+              ${m.resultOverride ? `<button class="btn btn-ghost btn-sm" onclick="clearResultOverride('${id}')">Auto</button>` : ''}
+            </div>
+          </div>`;
+      }).join('');
+
+      el.innerHTML = subNav + `
+        <div class="admin-section">
+          <h3>Meccseredmények felülbírálása</h3>
+          <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Az "Auto" gombbal visszaállítható az API automatikus szinkronizáció.</p>
+          ${rows || '<div style="color:var(--text2);font-size:13px">Nincsenek meccsek.</div>'}
+        </div>`;
+    }
+
+    async function saveResultOverride(matchId) {
+      const home = parseInt(document.getElementById(`res-h-${matchId}`).value);
+      const away = parseInt(document.getElementById(`res-a-${matchId}`).value);
+      if (isNaN(home) || isNaN(away)) return;
+      const update = { resultHome: home, resultAway: away, resultOverride: true };
+      await fbPatch(`matches/${matchId}`, update);
+      Object.assign(allMatches[matchId], update);
+      renderAdminResults();
+    }
+
+    async function clearResultOverride(matchId) {
+      await fbPatch(`matches/${matchId}`, { resultOverride: false });
+      allMatches[matchId].resultOverride = false;
+      renderAdminResults();
+    }
+
+    // === INFO MODAL ===
+    function showInfoModal() {
+      document.getElementById('info-modal').hidden = false;
+    }
+    function hideInfoModal() {
+      document.getElementById('info-modal').hidden = true;
+    }
+    document.getElementById('info-modal').addEventListener('click', hideInfoModal);
+
+    // === RENDER: ADMIN - CONFIG ===
+    function renderAdminConfig() {
+      const el = document.getElementById('tab-admin');
+      const subNav = `<div style="display:flex;gap:8px;margin-bottom:16px">
+        <button class="btn btn-ghost btn-sm" onclick="renderAdminUsers()">Felhasználók</button>
+        <button class="btn btn-ghost btn-sm" onclick="renderAdminResults()">Eredmények</button>
+        <button class="btn btn-primary btn-sm">Beállítások</button>
+      </div>`;
+
+      const groupQualHtml = GROUPS.map(g => {
+        const saved = (appConfig.groupQualifiers && appConfig.groupQualifiers[g]) || [];
+        const teams = getTeamsForGroup(g);
+        const opts = teams.map(t => `<option value="${t}">${t}</option>`).join('');
+        return `<div class="form-group">
+          <label>${g} csoport &mdash; továbbjutók</label>
+          <div style="display:flex;gap:8px">
+            <select id="gq-${g}-1" style="flex:1"><option value="">--</option>${opts}</select>
+            <select id="gq-${g}-2" style="flex:1"><option value="">--</option>${opts}</select>
+          </div>
+        </div>`;
+      }).join('');
+
+      const allTeamOpts = getAllTeams().map(t =>
+        `<option value="${t}" ${appConfig.tournamentWinner === t ? 'selected' : ''}>${t}</option>`
+      ).join('');
+
+      el.innerHTML = subNav + `
+        <div class="admin-section">
+          <h3>API beállítások</h3>
+          <div class="form-group">
+            <label>football-data.org API kulcs</label>
+            <input type="text" id="admin-apikey" value="${appConfig.apiKey || ''}" placeholder="pl. abc123...">
+          </div>
+          <div class="form-group">
+            <label>Előzetes tippek határideje (UTC)</label>
+            <input type="datetime-local" id="admin-deadline" value="${appConfig.pretournamentDeadline ? appConfig.pretournamentDeadline.slice(0,16) : ''}">
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="saveApiSettings()">Mentés</button>
+          <button class="btn btn-ghost btn-sm" onclick="forceSyncAPI()" style="margin-left:8px">Szinkronizálás most</button>
+          <div id="admin-api-status" style="margin-top:8px;font-size:12px;color:var(--accent2)"></div>
+        </div>
+        <div class="admin-section">
+          <h3>VB végső eredmények (pontozáshoz)</h3>
+          <div class="form-group">
+            <label>Gólkirály neve (kis/nagybetű mindegy)</label>
+            <input type="text" id="admin-topscorer" value="${appConfig.topScorer || ''}" placeholder="pl. Kylian Mbappé">
+          </div>
+          <div class="form-group">
+            <label>Végső győztes csapat</label>
+            <select id="admin-winner">
+              <option value="">Válassz...</option>${allTeamOpts}
+            </select>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="saveTournamentResults()">Mentés</button>
+          <div id="admin-tournament-status" style="margin-top:8px;font-size:12px;color:var(--accent2)"></div>
+        </div>
+        <div class="admin-section">
+          <h3>Csoporttovábbjutók (pontozáshoz)</h3>
+          <p style="font-size:12px;color:var(--text2);margin-bottom:10px">A csoportkör végén töltsd ki csoportonként a 2 továbbjutó csapatot.</p>
+          ${groupQualHtml}
+          <button class="btn btn-primary btn-sm" onclick="saveGroupQualifiers()">Csoporttovábbjutók mentése</button>
+          <div id="gq-status" style="margin-top:8px;font-size:12px;color:var(--accent2)"></div>
+        </div>`;
+
+      // Restore select values after innerHTML
+      for (const g of GROUPS) {
+        const saved = (appConfig.groupQualifiers && appConfig.groupQualifiers[g]) || [];
+        const s1 = document.getElementById(`gq-${g}-1`);
+        const s2 = document.getElementById(`gq-${g}-2`);
+        if (s1 && saved[0]) s1.value = saved[0];
+        if (s2 && saved[1]) s2.value = saved[1];
+      }
+    }
+
+    async function saveApiSettings() {
+      const key = document.getElementById('admin-apikey').value.trim();
+      const deadlineRaw = document.getElementById('admin-deadline').value;
+      const deadline = deadlineRaw ? new Date(deadlineRaw).toISOString() : null;
+      const update = { apiKey: key };
+      if (deadline) update.pretournamentDeadline = deadline;
+      await fbPatch('config', update);
+      Object.assign(appConfig, update);
+      document.getElementById('admin-api-status').textContent = '&#x2713; Mentve';
+    }
+
+    async function forceSyncAPI() {
+      const s = document.getElementById('admin-api-status');
+      s.textContent = 'Szinkronizálás...';
+      await seedMatchesIfNeeded();
+      await syncResultsFromAPI();
+      s.textContent = '&#x2713; Szinkronizálás kész';
+      renderMatches();
+    }
+
+    async function saveTournamentResults() {
+      const topScorer = document.getElementById('admin-topscorer').value.trim();
+      const tournamentWinner = document.getElementById('admin-winner').value;
+      await fbPatch('config', { topScorer, tournamentWinner });
+      appConfig.topScorer = topScorer;
+      appConfig.tournamentWinner = tournamentWinner;
+      document.getElementById('admin-tournament-status').textContent = '&#x2713; Mentve';
+    }
+
+    async function saveGroupQualifiers() {
+      const groupQualifiers = {};
+      for (const g of GROUPS) {
+        const v1 = document.getElementById(`gq-${g}-1`)?.value;
+        const v2 = document.getElementById(`gq-${g}-2`)?.value;
+        if (v1 || v2) groupQualifiers[g] = [v1, v2].filter(Boolean);
+      }
+      await fbPatch('config', { groupQualifiers });
+      appConfig.groupQualifiers = groupQualifiers;
+      document.getElementById('gq-status').textContent = '&#x2713; Csoporttovábbjutók mentve';
+    }
   </script>
 </body>
 </html>
