@@ -383,15 +383,17 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
       try {
         const cred = await auth.createUserWithEmailAndPassword(email, password);
         const uid = cred.user.uid;
+        currentUser = cred.user; // szükséges hogy fbGet/fbPut működjön azonnal
         await fbPut(`users/${uid}`, {
           displayName: name, username, email,
           status: 'pending', createdAt: new Date().toISOString()
         });
-        const admins = await fbGetNoAuth('admins');
+        const admins = await fbGet('admins');
         if (!admins) {
           await fbPut(`admins/${uid}`, true);
         }
       } catch (e) {
+        currentUser = null;
         errEl.textContent = firebaseAuthError(e.code);
       }
     }
