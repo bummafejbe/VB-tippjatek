@@ -249,14 +249,14 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
 
   <script>
     const FIREBASE_CONFIG = {
-      // FILL IN FROM FIREBASE CONSOLE: Project Settings > General > Your apps > Firebase SDK snippet
-      apiKey: "FILL_IN",
-      authDomain: "FILL_IN",
-      databaseURL: "FILL_IN",
-      projectId: "FILL_IN",
-      storageBucket: "FILL_IN",
-      messagingSenderId: "FILL_IN",
-      appId: "FILL_IN"
+      // apiKey + messagingSenderId + appId: Firebase Console > Project Settings > General > Your apps > SDK snippet
+      apiKey: "FILL_IN_API_KEY",
+      authDomain: "vb-tippjatek-19fda.firebaseapp.com",
+      databaseURL: "https://vb-tippjatek-19fda-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "vb-tippjatek-19fda",
+      storageBucket: "vb-tippjatek-19fda.firebasestorage.app",
+      messagingSenderId: "FILL_IN_SENDER_ID",
+      appId: "FILL_IN_APP_ID"
     };
     firebase.initializeApp(FIREBASE_CONFIG);
     const auth = firebase.auth();
