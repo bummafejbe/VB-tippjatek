@@ -388,12 +388,12 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
           displayName: name, username, email,
           status: 'pending', createdAt: new Date().toISOString()
         });
+        if (!currentUser) currentUser = cred.user; // védelem race condition ellen
         const admins = await fbGet('admins');
         if (!admins) {
           await fbPut(`admins/${uid}`, true);
         }
       } catch (e) {
-        currentUser = null;
         errEl.textContent = firebaseAuthError(e.code);
       }
     }
@@ -431,7 +431,8 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
         return;
       }
       if (!currentUserData) {
-        await doLogout();
+        // Race condition: onAuthStateChanged fired before doRegister finished writing to DB
+        showScreen('screen-pending');
         return;
       }
       if (currentUserData.status === 'pending') {
