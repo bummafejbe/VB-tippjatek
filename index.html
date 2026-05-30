@@ -249,6 +249,22 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
 </div>
 
   <script>
+    // Auto-reload when a new version is deployed
+    (function() {
+      let knownEtag = null;
+      async function checkVersion() {
+        try {
+          const res = await fetch(location.href, { method: 'HEAD', cache: 'no-store' });
+          const etag = res.headers.get('etag') || res.headers.get('last-modified');
+          if (!etag) return;
+          if (knownEtag === null) { knownEtag = etag; return; }
+          if (etag !== knownEtag) location.reload();
+        } catch {}
+      }
+      setInterval(checkVersion, 60000);
+      checkVersion();
+    })();
+
     const FIREBASE_CONFIG = {
       // apiKey + messagingSenderId + appId: Firebase Console > Project Settings > General > Your apps > SDK snippet
       apiKey: "AIzaSyBFYwDJqtHdKV9FV8PFAzStuqYqJmVlG0g",
