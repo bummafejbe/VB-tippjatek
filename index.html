@@ -76,7 +76,7 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
 .team-name { flex: 1; font-weight: 600; font-size: 13px; line-height: 1.3; min-width: 0; }
 .team-name.away { text-align: right; }
 .match-result { font-size: 17px; font-weight: 700; color: var(--accent); width: 48px; flex-shrink: 0; text-align: center; }
-.tip-row { display: flex; align-items: center; gap: 8px; }
+.tip-row { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .tip-input { width: 48px; padding: 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 16px; font-weight: 700; text-align: center; }
 .tip-input:focus { outline: none; border-color: var(--accent); }
 .tip-separator { font-size: 18px; font-weight: 700; color: var(--text2); }
@@ -95,7 +95,7 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
 .group-header:first-child { border-top: none; margin-top: 0; }
 
 /* Groups accordion grid */
-.groups-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.groups-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; align-items: start; }
 .groups-grid--single { grid-template-columns: 1fr; }
 @media (max-width: 520px) { .groups-grid { grid-template-columns: 1fr; } }
 details.group-accordion { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
@@ -618,17 +618,18 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
         grouped[g].sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
       }
 
-      const renderAccordion = (groupKey) => {
+      const renderAccordion = (groupKey, isOpen = false) => {
         if (!grouped[groupKey]) return '';
         const label = GROUP_LABELS[groupKey] || groupKey;
+        const open = isOpen ? ' open' : '';
         const cards = grouped[groupKey].map(m => renderMatchCard(m, myTips[m.id] || null)).join('');
-        return `<details class="group-accordion" open><summary>${label}</summary><div class="group-body">${cards}</div></details>`;
+        return `<details class="group-accordion"${open}><summary>${label}</summary><div class="group-body">${cards}</div></details>`;
       };
 
       const GROUP_STAGES = ['GROUP_A','GROUP_B','GROUP_C','GROUP_D','GROUP_E','GROUP_F','GROUP_G','GROUP_H','GROUP_I','GROUP_J','GROUP_K','GROUP_L'];
       const KNOCKOUT_STAGES = ['LAST_32','LAST_16','ROUND_OF_16','QUARTER_FINALS','SEMI_FINALS','THIRD_PLACE','FINAL'];
 
-      const groupStageHtml = GROUP_STAGES.map(renderAccordion).filter(Boolean).join('');
+      const groupStageHtml = GROUP_STAGES.map((g, i) => renderAccordion(g, i < 2)).filter(Boolean).join('');
       const knockoutHtml = KNOCKOUT_STAGES.map(renderAccordion).filter(Boolean).join('');
       let unknownHtml = '';
       for (const groupKey of Object.keys(grouped)) {
