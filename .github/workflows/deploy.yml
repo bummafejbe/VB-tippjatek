@@ -1,8 +1,11 @@
-name: Deploy to Firebase Hosting
+name: Deploy to Firebase
 
 on:
   push:
     branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   deploy:
@@ -15,3 +18,15 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           projectId: vb-tippjatek-19fda
           channelId: live
+      - name: Deploy database rules
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          SA="$FIREBASE_SERVICE_ACCOUNT"
+          if echo "$SA" | base64 -d 2>/dev/null | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+            echo "$SA" | base64 -d > /tmp/sa.json
+          else
+            echo "$SA" > /tmp/sa.json
+          fi
+          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json
+          npx firebase-tools@latest deploy --only database --project vb-tippjatek-19fda --non-interactive
