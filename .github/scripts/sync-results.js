@@ -1,25 +1,57 @@
 'use strict';
 const https = require('https');
 
+if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+  console.error('FIREBASE_SERVICE_ACCOUNT env var is required');
+  process.exit(1);
+}
+if (!process.env.FOOTBALL_DATA_API_KEY) {
+  console.error('FOOTBALL_DATA_API_KEY env var is required');
+  process.exit(1);
+}
+
+let serviceAccount;
+try {
+  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+} catch (e) {
+  console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT JSON:', e.message);
+  process.exit(1);
+}
+
+const admin = require('firebase-admin');
+const apiKey = process.env.FOOTBALL_DATA_API_KEY;
+
 const DB_URL = 'https://vb-tippjatek-19fda-default-rtdb.europe-west1.firebasedatabase.app';
 const FD_BASE = 'https://api.football-data.org/v4';
 const WC_COMPETITION = 'WC';
 const WC_SEASON = '2026';
 
-const token = process.env.ACCESS_TOKEN;
-const apiKey = process.env.FOOTBALL_DATA_API_KEY;
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: DB_URL,
+});
 
-if (!token) { console.error('ACCESS_TOKEN env var is required'); process.exit(1); }
-if (!apiKey) { console.error('FOOTBALL_DATA_API_KEY env var is required'); process.exit(1); }
+const db = admin.database();
 
-function request(url, options = {}, body = null) {
+function fbGet(path) {
+  return db.ref(path).once('value').then(snap => snap.val());
+}
+
+function fbSet(path, data) {
+  return db.ref(path).set(data);
+}
+
+function fbUpdate(path, data) {
+  return db.ref(path).update(data);
+}
+
+function fetchFromFD(endpoint) {
   return new Promise((resolve, reject) => {
-    const urlObj = new URL(url);
+    const urlObj = new URL(`${FD_BASE}${endpoint}`);
     const req = https.request({
       hostname: urlObj.hostname,
       path: urlObj.pathname + urlObj.search,
-      method: options.method || 'GET',
-      headers: options.headers || {},
+      headers: { 'X-Auth-Token': apiKey },
     }, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
@@ -27,39 +59,12 @@ function request(url, options = {}, body = null) {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           resolve(JSON.parse(data));
         } else {
-          reject(new Error(`HTTP ${res.statusCode} ${urlObj.pathname}: ${data.slice(0, 300)}`));
+          reject(new Error(`API HTTP ${res.statusCode}: ${data.slice(0, 300)}`));
         }
       });
     });
     req.on('error', reject);
-    if (body) req.write(body);
     req.end();
-  });
-}
-
-function fbGet(path) {
-  return request(`${DB_URL}${path}.json?access_token=${token}`);
-}
-
-function fbPut(path, data) {
-  const body = JSON.stringify(data);
-  return request(`${DB_URL}${path}.json?access_token=${token}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-  }, body);
-}
-
-function fbPatch(path, data) {
-  const body = JSON.stringify(data);
-  return request(`${DB_URL}${path}.json?access_token=${token}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-  }, body);
-}
-
-function fetchFromFD(endpoint) {
-  return request(`${FD_BASE}${endpoint}`, {
-    headers: { 'X-Auth-Token': apiKey },
   });
 }
 
@@ -86,7 +91,7 @@ async function main() {
         resultOverride: false,
       };
     }
-    await fbPut('/matches', toWrite);
+    await fbSet('/matches', toWrite);
     console.log(`Seeded ${Object.keys(toWrite).length} matches`);
     return;
   }
@@ -108,13 +113,12 @@ async function main() {
     const resultAway = m.score?.fullTime?.away ?? null;
     if (resultHome === null || resultAway === null) continue;
     if (existing.resultHome === resultHome && existing.resultAway === resultAway) continue;
-    await fbPatch(`/matches/${m.id}`, { resultHome, resultAway });
+    await fbUpdate(`/matches/${m.id}`, { resultHome, resultAway });
     updated++;
   }
   console.log(updated > 0 ? `Updated ${updated} matches` : 'No updates needed');
 }
 
-main().catch(err => {
-  console.error('Sync failed:', err.message);
-  process.exit(1);
-});
+main()
+  .then(() => { console.log('Sync complete!'); process.exit(0); })
+  .catch(err => { console.error('Sync failed:', err.message); process.exit(1); });

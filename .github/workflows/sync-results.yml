@@ -5,21 +5,22 @@ on:
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Install dependencies
+        run: npm install
+        working-directory: .github/scripts
       - name: Sync match results
-        run: |
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-          export ACCESS_TOKEN
-          node .github/scripts/sync-results.js
+        run: node .github/scripts/sync-results.js
         env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
