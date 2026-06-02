@@ -1,62 +1,25 @@
 'use strict';
 const https = require('https');
 
-if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-  console.error('FIREBASE_SERVICE_ACCOUNT env var is required');
-  process.exit(1);
-}
-if (!process.env.FOOTBALL_DATA_API_KEY) {
-  console.error('FOOTBALL_DATA_API_KEY env var is required');
-  process.exit(1);
-}
-
-let serviceAccount;
-try {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-  // firebase init hosting:github stores the secret as base64-encoded JSON
-  const decoded = Buffer.from(raw, 'base64').toString('utf8').trim();
-  const isJson = decoded.startsWith('{');
-  serviceAccount = JSON.parse(isJson ? decoded : raw);
-  console.log('Service account project:', serviceAccount.project_id);
-} catch (e) {
-  console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT:', e.message);
-  process.exit(1);
-}
-
-const admin = require('firebase-admin');
-const apiKey = process.env.FOOTBALL_DATA_API_KEY;
-
 const DB_URL = 'https://vb-tippjatek-19fda-default-rtdb.europe-west1.firebasedatabase.app';
 const FD_BASE = 'https://api.football-data.org/v4';
 const WC_COMPETITION = 'WC';
 const WC_SEASON = '2026';
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: DB_URL,
-});
+const dbSecret = process.env.FIREBASE_DB_SECRET;
+const apiKey = process.env.FOOTBALL_DATA_API_KEY;
 
-const db = admin.database();
+if (!dbSecret) { console.error('FIREBASE_DB_SECRET env var is required'); process.exit(1); }
+if (!apiKey)   { console.error('FOOTBALL_DATA_API_KEY env var is required'); process.exit(1); }
 
-function fbGet(path) {
-  return db.ref(path).once('value').then(snap => snap.val());
-}
-
-function fbSet(path, data) {
-  return db.ref(path).set(data);
-}
-
-function fbUpdate(path, data) {
-  return db.ref(path).update(data);
-}
-
-function fetchFromFD(endpoint) {
+function request(url, options = {}, body = null) {
   return new Promise((resolve, reject) => {
-    const urlObj = new URL(`${FD_BASE}${endpoint}`);
+    const urlObj = new URL(url);
     const req = https.request({
       hostname: urlObj.hostname,
       path: urlObj.pathname + urlObj.search,
-      headers: { 'X-Auth-Token': apiKey },
+      method: options.method || 'GET',
+      headers: options.headers || {},
     }, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
@@ -64,12 +27,39 @@ function fetchFromFD(endpoint) {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           resolve(JSON.parse(data));
         } else {
-          reject(new Error(`API HTTP ${res.statusCode}: ${data.slice(0, 300)}`));
+          reject(new Error(`HTTP ${res.statusCode} ${urlObj.pathname}: ${data.slice(0, 300)}`));
         }
       });
     });
     req.on('error', reject);
+    if (body) req.write(body);
     req.end();
+  });
+}
+
+function fbGet(path) {
+  return request(`${DB_URL}${path}.json?auth=${dbSecret}`);
+}
+
+function fbSet(path, data) {
+  const body = JSON.stringify(data);
+  return request(`${DB_URL}${path}.json?auth=${dbSecret}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+  }, body);
+}
+
+function fbUpdate(path, data) {
+  const body = JSON.stringify(data);
+  return request(`${DB_URL}${path}.json?auth=${dbSecret}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+  }, body);
+}
+
+function fetchFromFD(endpoint) {
+  return request(`${FD_BASE}${endpoint}`, {
+    headers: { 'X-Auth-Token': apiKey },
   });
 }
 
