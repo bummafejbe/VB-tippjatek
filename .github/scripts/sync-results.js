@@ -1,23 +1,16 @@
 'use strict';
 const https = require('https');
-const crypto = require('crypto');
 
 const DB_URL = 'https://vb-tippjatek-19fda-default-rtdb.europe-west1.firebasedatabase.app';
 const FD_BASE = 'https://api.football-data.org/v4';
 const WC_COMPETITION = 'WC';
 const WC_SEASON = '2026';
 
-if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-  console.error('FIREBASE_SERVICE_ACCOUNT env var is required');
-  process.exit(1);
-}
-if (!process.env.FOOTBALL_DATA_API_KEY) {
-  console.error('FOOTBALL_DATA_API_KEY env var is required');
-  process.exit(1);
-}
-
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+const token = process.env.ACCESS_TOKEN;
 const apiKey = process.env.FOOTBALL_DATA_API_KEY;
+
+if (!token) { console.error('ACCESS_TOKEN env var is required'); process.exit(1); }
+if (!apiKey) { console.error('FOOTBALL_DATA_API_KEY env var is required'); process.exit(1); }
 
 function request(url, options = {}, body = null) {
   return new Promise((resolve, reject) => {
@@ -34,7 +27,7 @@ function request(url, options = {}, body = null) {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           resolve(JSON.parse(data));
         } else {
-          reject(new Error(`HTTP ${res.statusCode} ${url}: ${data.slice(0, 300)}`));
+          reject(new Error(`HTTP ${res.statusCode} ${urlObj.pathname}: ${data.slice(0, 300)}`));
         }
       });
     });
@@ -44,42 +37,11 @@ function request(url, options = {}, body = null) {
   });
 }
 
-async function getAccessToken() {
-  const now = Math.floor(Date.now() / 1000);
-  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
-  const claim = Buffer.from(JSON.stringify({
-    iss: serviceAccount.client_email,
-    scope: 'https://www.googleapis.com/auth/firebase https://www.googleapis.com/auth/userinfo.email',
-    aud: 'https://oauth2.googleapis.com/token',
-    iat: now,
-    exp: now + 3600,
-  })).toString('base64url');
-
-  const sign = crypto.createSign('RSA-SHA256');
-  sign.update(`${header}.${claim}`);
-  const sig = sign.sign(serviceAccount.private_key, 'base64url');
-  const jwt = `${header}.${claim}.${sig}`;
-
-  const body = new URLSearchParams({
-    grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-    assertion: jwt,
-  }).toString();
-
-  const data = await request('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Content-Length': Buffer.byteLength(body),
-    },
-  }, body);
-  return data.access_token;
-}
-
-function fbGet(token, path) {
+function fbGet(path) {
   return request(`${DB_URL}${path}.json?access_token=${token}`);
 }
 
-function fbPut(token, path, data) {
+function fbPut(path, data) {
   const body = JSON.stringify(data);
   return request(`${DB_URL}${path}.json?access_token=${token}`, {
     method: 'PUT',
@@ -87,7 +49,7 @@ function fbPut(token, path, data) {
   }, body);
 }
 
-function fbPatch(token, path, data) {
+function fbPatch(path, data) {
   const body = JSON.stringify(data);
   return request(`${DB_URL}${path}.json?access_token=${token}`, {
     method: 'PATCH',
@@ -103,10 +65,8 @@ function fetchFromFD(endpoint) {
 
 async function main() {
   console.log('Starting sync...');
-  const token = await getAccessToken();
-  console.log('Got Firebase access token');
 
-  const matches = await fbGet(token, '/matches');
+  const matches = await fbGet('/matches');
 
   if (!matches) {
     console.log('No matches in DB — seeding from API...');
@@ -126,7 +86,7 @@ async function main() {
         resultOverride: false,
       };
     }
-    await fbPut(token, '/matches', toWrite);
+    await fbPut('/matches', toWrite);
     console.log(`Seeded ${Object.keys(toWrite).length} matches`);
     return;
   }
@@ -148,7 +108,7 @@ async function main() {
     const resultAway = m.score?.fullTime?.away ?? null;
     if (resultHome === null || resultAway === null) continue;
     if (existing.resultHome === resultHome && existing.resultAway === resultAway) continue;
-    await fbPatch(token, `/matches/${m.id}`, { resultHome, resultAway });
+    await fbPatch(`/matches/${m.id}`, { resultHome, resultAway });
     updated++;
   }
   console.log(updated > 0 ? `Updated ${updated} matches` : 'No updates needed');
