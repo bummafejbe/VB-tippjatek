@@ -489,11 +489,11 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
 
     async function loadAllData() {
       const [matchesRaw, tipsRaw, usersRaw, configRaw, pretournRaw] = await Promise.all([
-        fbGet('matches'),
-        fbGet('tips'),
-        fbGet('users'),
-        fbGet('config'),
-        fbGet('pretournament')
+        fbGet('matches').catch(() => null),
+        fbGet('tips').catch(() => null),
+        fbGet('users').catch(() => null),
+        fbGet('config').catch(() => null),
+        fbGet('pretournament').catch(() => null),
       ]);
       allMatches = matchesRaw || {};
       allTips = tipsRaw || {};
