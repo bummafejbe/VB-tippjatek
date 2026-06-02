@@ -116,6 +116,38 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
 .player-name { font-weight: 600; }
 .score-pts { font-weight: 700; color: var(--accent); text-align: right; }
 
+/* Knockout Bracket */
+.bracket-section { margin-top: 16px; }
+.bracket-section-title { font-size: 12px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .08em; padding: 12px 0 8px; border-top: 1px solid var(--border); margin-bottom: 4px; }
+.bracket-round-headers { display: flex; gap: 0; padding-bottom: 4px; min-width: max-content; }
+.bracket-rh { font-size: 10px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .06em; text-align: center; }
+.bracket-scroll { overflow-x: auto; padding-bottom: 12px; }
+.bracket-canvas { position: relative; display: inline-block; }
+.bracket-svg { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }
+.bk-card { position: absolute; width: 130px; height: 52px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; cursor: pointer; transition: border-color .15s, background .15s; overflow: hidden; }
+.bk-card:hover { border-color: var(--accent); background: #1e3558; }
+.bk-row { display: flex; justify-content: space-between; align-items: center; height: 18px; }
+.bk-team { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.bk-tbd { color: var(--text2); font-weight: 400; font-style: italic; font-size: 10px; }
+.bk-score { font-size: 12px; font-weight: 700; color: var(--accent); margin-left: 4px; flex-shrink: 0; min-width: 14px; text-align: right; }
+.bk-divider { height: 1px; background: var(--border); margin: 2px 0; }
+.bk-tipped { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; background: var(--accent2); border-radius: 50%; }
+.bk-card.bk-final { border-color: #f59e0b55; }
+.bk-card.bk-final .bk-score { color: #f59e0b; }
+.bk-card.bk-final:hover { border-color: #f59e0b; }
+.bk-extra-label { position: absolute; font-size: 9px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+/* Bracket Modal */
+#bracket-modal { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.bm-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.75); }
+.bm-panel { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; width: 100%; max-width: 340px; max-height: 90vh; overflow-y: auto; }
+.bm-close { position: absolute; top: 10px; right: 14px; font-size: 20px; cursor: pointer; color: var(--text2); background: none; border: none; line-height: 1; }
+.bm-round { font-size: 10px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 3px; }
+.bm-date { font-size: 12px; color: var(--text2); margin-bottom: 14px; }
+.bm-teams { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; }
+.bm-tname { flex: 1; font-size: 14px; font-weight: 700; }
+.bm-tname.away { text-align: right; }
+.bm-tscore { font-size: 20px; font-weight: 800; color: var(--accent); min-width: 40px; text-align: center; flex-shrink: 0; }
+
 /* Admin */
 .admin-section { margin-bottom: 28px; }
 .admin-section h3 { font-size: 14px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 12px; }
@@ -216,6 +248,13 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
     <div id="tab-admin" hidden></div>
   </div>
 </div>
+  <div id="bracket-modal" hidden>
+    <div class="bm-backdrop" onclick="closeBracketModal()"></div>
+    <div class="bm-panel">
+      <button class="bm-close" onclick="closeBracketModal()">&#x2715;</button>
+      <div id="bracket-modal-content"></div>
+    </div>
+  </div>
   <button id="info-btn" hidden onclick="showInfoModal()">i Info</button>
   <div id="info-modal" hidden>
   <div class="info-panel" onclick="event.stopPropagation()">
@@ -578,6 +617,180 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
       apiPollTimer = setInterval(syncResultsFromAPI, 5 * 60 * 1000);
     }
 
+    // === KNOCKOUT BRACKET ===
+    const BSLOT = 56, BCARD_H = 52, BCARD_W = 130, BCOL_GAP = 34, BCOL_W = 164;
+    const BYC = (slot) => slot * BSLOT + BSLOT / 2;
+    const BRACKET_R32 = [
+      [537415,0],[537416,1],[537417,2],[537418,3],
+      [537419,4],[537420,5],[537421,6],[537422,7],
+      [537423,8],[537424,9],[537425,10],[537426,11],
+      [537427,12],[537428,13],[537429,14],[537430,15],
+    ];
+    const BRACKET_R16 = [
+      [537375,0.5],[537376,2.5],[537379,4.5],[537380,6.5],
+      [537377,8.5],[537378,10.5],[537381,12.5],[537382,14.5],
+    ];
+    const BRACKET_QF = [[537383,1.5],[537384,5.5],[537385,9.5],[537386,13.5]];
+    const BRACKET_SF = [[537387,3.5],[537388,11.5]];
+    const BRACKET_FINAL = [[537390,7.5,true,'⭐'],[537389,13.5,false,'🥉']];
+    const BRACKET_CONNS = {
+      537375:[537415,537416], 537376:[537417,537418],
+      537379:[537419,537420], 537380:[537421,537422],
+      537377:[537423,537424], 537378:[537425,537426],
+      537381:[537427,537428], 537382:[537429,537430],
+      537383:[537375,537376], 537384:[537379,537380],
+      537385:[537377,537378], 537386:[537381,537382],
+      537387:[537383,537384], 537388:[537385,537386],
+      537390:[537387,537388],
+    };
+
+    function renderKnockoutBracket() {
+      const myTips = allTips[currentUser.uid] || {};
+      const slotOf = {}, colOf = {};
+      const reg = (arr, col) => arr.forEach(([id, slot]) => { slotOf[id] = slot; colOf[id] = col; });
+      reg(BRACKET_R32,0); reg(BRACKET_R16,1); reg(BRACKET_QF,2); reg(BRACKET_SF,3);
+      BRACKET_FINAL.forEach(([id,slot]) => { slotOf[id]=slot; colOf[id]=4; });
+
+      const mkCard = (id, isFinal=false, label='') => {
+        const m = allMatches[id];
+        if (!m) return '';
+        const x = colOf[id] * BCOL_W;
+        const y = BYC(slotOf[id]) - BCARD_H / 2;
+        const hasTip = !!myTips[id];
+        const hasResult = m.resultHome != null && m.resultAway != null;
+        const homeScore = hasResult ? m.resultHome : '';
+        const awayScore = hasResult ? m.resultAway : '';
+        const home = (m.home && m.home !== 'TBD') ? m.home : `<span class="bk-tbd">TBD</span>`;
+        const away = (m.away && m.away !== 'TBD') ? m.away : `<span class="bk-tbd">TBD</span>`;
+        const cls = isFinal ? 'bk-card bk-final' : 'bk-card';
+        const lbl = label ? `<div class="bk-extra-label" style="left:${x}px;top:${y-14}px">${label}</div>` : '';
+        return lbl + `<div class="${cls}" data-mid="${id}" style="left:${x}px;top:${y}px" onclick="openBracketModal('${id}')">
+          ${hasTip ? '<div class="bk-tipped"></div>' : ''}
+          <div class="bk-row"><span class="bk-team">${home}</span><span class="bk-score">${homeScore}</span></div>
+          <div class="bk-divider"></div>
+          <div class="bk-row"><span class="bk-team">${away}</span><span class="bk-score">${awayScore}</span></div>
+        </div>`;
+      };
+
+      let cards = '';
+      BRACKET_R32.forEach(([id]) => cards += mkCard(id));
+      BRACKET_R16.forEach(([id]) => cards += mkCard(id));
+      BRACKET_QF.forEach(([id]) => cards += mkCard(id));
+      BRACKET_SF.forEach(([id]) => cards += mkCard(id));
+      BRACKET_FINAL.forEach(([id,,isFinal,lbl]) => cards += mkCard(id, isFinal, lbl));
+
+      // SVG connector lines
+      let lines = '';
+      for (const [childId, [p1Id, p2Id]] of Object.entries(BRACKET_CONNS)) {
+        if (!slotOf[childId] && slotOf[childId] !== 0) continue;
+        const pCol = colOf[p1Id];
+        const pRX = pCol * BCOL_W + BCARD_W;        // right edge of parent cards
+        const cLX = colOf[childId] * BCOL_W;          // left edge of child card
+        const midX = pRX + BCOL_GAP / 2;
+        const p1Y = BYC(slotOf[p1Id]);
+        const p2Y = BYC(slotOf[p2Id]);
+        const cY  = BYC(slotOf[childId]);
+        lines += `<line x1="${pRX}" y1="${p1Y}" x2="${midX}" y2="${p1Y}"/>`;
+        lines += `<line x1="${pRX}" y1="${p2Y}" x2="${midX}" y2="${p2Y}"/>`;
+        lines += `<line x1="${midX}" y1="${p1Y}" x2="${midX}" y2="${p2Y}"/>`;
+        lines += `<line x1="${midX}" y1="${cY}" x2="${cLX}" y2="${cY}"/>`;
+      }
+
+      const totalW = 4 * BCOL_W + BCARD_W + 8;
+      const totalH = 16 * BSLOT + 20; // +20 for label space at top
+      const ROUND_LABELS = ['Tizenhatod döntő','Nyolcaddöntő','Negyeddöntő','Elődöntő','Döntő / Bronz'];
+      const hdrs = ROUND_LABELS.map((l,i) =>
+        `<div class="bracket-rh" style="width:${i<4?BCOL_W:BCARD_W}px">${l}</div>`).join('');
+
+      return `<div class="bracket-section-title">Kieséses Szakasz</div>
+        <div class="bracket-scroll">
+          <div class="bracket-round-headers">${hdrs}</div>
+          <div class="bracket-canvas" style="width:${totalW}px;height:${totalH}px">
+            <svg class="bracket-svg" width="${totalW}" height="${totalH}">
+              <g stroke="#334155" stroke-width="1.5" fill="none">${lines}</g>
+            </svg>
+            ${cards}
+          </div>
+        </div>`;
+    }
+
+    function openBracketModal(matchId) {
+      const m = allMatches[matchId];
+      if (!m) return;
+      const locked = isMatchLocked(m);
+      const hasResult = m.resultHome != null && m.resultAway != null;
+      const myTip = (allTips[currentUser.uid] || {})[matchId];
+      const roundLabel = GROUP_LABELS[m.group] || m.group || '';
+      const resultStr = hasResult ? `${m.resultHome}&ndash;${m.resultAway}` : '&ndash;';
+
+      let tipHtml = '';
+      if (!locked) {
+        const h = myTip ? myTip.home : '', a = myTip ? myTip.away : '';
+        tipHtml = `<div class="tip-section-label" style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">A tipped:</div>
+          <div class="tip-row" style="margin-bottom:14px">
+            <input class="tip-input" type="number" min="0" max="20" id="bm-h" value="${h}" placeholder="0">
+            <span class="tip-separator">&ndash;</span>
+            <input class="tip-input" type="number" min="0" max="20" id="bm-a" value="${a}" placeholder="0">
+            <button class="btn btn-primary btn-sm" onclick="saveBracketTip('${matchId}')">Mentés</button>
+            <span id="bm-status" class="tip-saved" style="display:none">&#x2713;</span>
+          </div>`;
+      } else if (myTip) {
+        let pts = '';
+        if (hasResult) { const p = calculateMatchPoints(myTip, m.resultHome, m.resultAway); pts = ` <span style="color:var(--accent2);font-weight:700">+${p} pt</span>`; }
+        tipHtml = `<div class="tip-locked" style="margin-bottom:12px">Tipped: <strong>${myTip.home}&ndash;${myTip.away}</strong>${pts}</div>`;
+      } else {
+        tipHtml = `<div class="tip-locked" style="color:var(--danger);margin-bottom:12px">Nem tippeltél erre a meccsre.</div>`;
+      }
+
+      let othersHtml = '';
+      if (locked) {
+        const rows = Object.entries(allTips).filter(([u]) => u !== currentUser.uid).map(([u,tips]) => {
+          const t = tips[matchId];
+          const uname = (allUsers[u] && allUsers[u].displayName) || '???';
+          if (!t) return `<div class="other-tip-row"><span>${uname}</span><span class="tip-locked">Nem tippelt</span></div>`;
+          let pts = '';
+          if (hasResult) { const p = calculateMatchPoints(t, m.resultHome, m.resultAway); pts = `<span class="other-tip-points">+${p} pt</span>`; }
+          return `<div class="other-tip-row"><span>${uname}</span><span class="other-tip-score">${t.home}&ndash;${t.away}</span>${pts}</div>`;
+        });
+        if (rows.length) othersHtml = `<div class="others-tips"><div class="others-tips-title">Mások tippjei</div>${rows.join('')}</div>`;
+      }
+
+      document.getElementById('bracket-modal-content').innerHTML = `
+        <div class="bm-round">${roundLabel}</div>
+        <div class="bm-date">${formatDatetime(m.datetime)}</div>
+        <div class="bm-teams">
+          <div class="bm-tname">${m.home || 'TBD'}</div>
+          <div class="bm-tscore">${resultStr}</div>
+          <div class="bm-tname away">${m.away || 'TBD'}</div>
+        </div>
+        ${tipHtml}${othersHtml}`;
+      document.getElementById('bracket-modal').hidden = false;
+    }
+
+    function closeBracketModal() {
+      document.getElementById('bracket-modal').hidden = true;
+    }
+
+    async function saveBracketTip(matchId) {
+      const home = parseInt(document.getElementById('bm-h').value);
+      const away = parseInt(document.getElementById('bm-a').value);
+      if (isNaN(home) || isNaN(away) || home < 0 || away < 0) return;
+      const uid = currentUser.uid;
+      const tip = { home, away, submittedAt: new Date().toISOString() };
+      await fbPut(`tips/${uid}/${matchId}`, tip);
+      if (!allTips[uid]) allTips[uid] = {};
+      allTips[uid][matchId] = tip;
+      const s = document.getElementById('bm-status');
+      if (s) { s.style.display='inline'; setTimeout(() => { s.style.display='none'; }, 2000); }
+      // update tipped dot on bracket card
+      const card = document.querySelector(`.bk-card[data-mid="${matchId}"]`);
+      if (card && !card.querySelector('.bk-tipped')) {
+        const dot = document.createElement('div');
+        dot.className = 'bk-tipped';
+        card.appendChild(dot);
+      }
+    }
+
     // === RENDER: MATCHES ===
     const GROUP_ORDER = [
       'GROUP_A','GROUP_B','GROUP_C','GROUP_D','GROUP_E','GROUP_F',
@@ -630,17 +843,10 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
       const KNOCKOUT_STAGES = ['LAST_32','LAST_16','ROUND_OF_16','QUARTER_FINALS','SEMI_FINALS','THIRD_PLACE','FINAL'];
 
       const groupStageHtml = GROUP_STAGES.map((g, i) => renderAccordion(g, i < 2)).filter(Boolean).join('');
-      const knockoutHtml = KNOCKOUT_STAGES.map(renderAccordion).filter(Boolean).join('');
-      let unknownHtml = '';
-      for (const groupKey of Object.keys(grouped)) {
-        if ([...GROUP_STAGES, ...KNOCKOUT_STAGES].includes(groupKey)) continue;
-        unknownHtml += renderAccordion(groupKey);
-      }
 
       let html = '';
       if (groupStageHtml) html += `<div class="groups-grid">${groupStageHtml}</div>`;
-      if (knockoutHtml)   html += `<div class="groups-grid groups-grid--single">${knockoutHtml}</div>`;
-      if (unknownHtml)    html += `<div class="groups-grid groups-grid--single">${unknownHtml}</div>`;
+      html += renderKnockoutBracket();
 
       if (!html) {
         html = '<div class="card" style="text-align:center;color:var(--text2)">Nincsenek meccsek.</div>';
