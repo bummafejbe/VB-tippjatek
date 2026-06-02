@@ -12,9 +12,14 @@ if (!process.env.FOOTBALL_DATA_API_KEY) {
 
 let serviceAccount;
 try {
-  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  // firebase init hosting:github stores the secret as base64-encoded JSON
+  const decoded = Buffer.from(raw, 'base64').toString('utf8').trim();
+  const isJson = decoded.startsWith('{');
+  serviceAccount = JSON.parse(isJson ? decoded : raw);
+  console.log('Service account project:', serviceAccount.project_id);
 } catch (e) {
-  console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT JSON:', e.message);
+  console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT:', e.message);
   process.exit(1);
 }
 
