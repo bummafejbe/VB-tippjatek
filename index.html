@@ -354,6 +354,8 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
       document.getElementById('form-login').hidden = false;
       document.getElementById('form-register').hidden = true;
       document.getElementById('login-error').textContent = '';
+      document.getElementById('login-email').value = '';
+      document.getElementById('login-password').value = '';
     }
     function showRegForm() {
       document.getElementById('form-login').hidden = true;
@@ -395,6 +397,7 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
       const errEl = document.getElementById('reg-error');
       errEl.textContent = '';
       if (!name || !username || !email || !password) { errEl.textContent = 'Töltsd ki az összes mezőt.'; return; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { errEl.textContent = 'Érvénytelen email cím.'; return; }
       if (password.length < 6) { errEl.textContent = 'A jelszó legalább 6 karakter legyen.'; return; }
       try {
         const cred = await auth.createUserWithEmailAndPassword(email, password);
