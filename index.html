@@ -581,6 +581,7 @@ details.group-accordion[open] > summary { color: var(--accent); }
 
     const TABS = ['tab-matches', 'tab-pretournament', 'tab-scoreboard', 'tab-stats', 'tab-admin'];
     function showTab(id) {
+      closeBracketModal();
       TABS.forEach(t => { document.getElementById(t).hidden = t !== id; });
       document.querySelectorAll('.nav-tab, .bnav-tab').forEach(el => {
         el.classList.toggle('active', el.dataset.tab === id);
