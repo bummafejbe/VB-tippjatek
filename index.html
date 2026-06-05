@@ -234,6 +234,153 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
 /* Info button */
 #info-btn { position: fixed; bottom: 20px; right: 20px; z-index: 50; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); border-radius: 50%; width: 44px; height: 44px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .15s; }
 #info-btn:hover { background: var(--surface); color: var(--text); }
+
+/* ===== REDESIGN 2026 ===== */
+
+/* Auth screen - hero */
+#screen-auth {
+  background: radial-gradient(ellipse at 65% 55%, #1a2f5a 0%, #0f172a 65%);
+  padding: 20px; position: relative; overflow: hidden;
+}
+#screen-auth::before {
+  content: '⚽'; font-size: 360px; position: absolute;
+  right: -80px; bottom: -80px; opacity: .03;
+  transform: rotate(-20deg); pointer-events: none; line-height: 1;
+}
+.auth-logo { font-size: 44px; display: block; margin-bottom: 12px; }
+.auth-box {
+  background: rgba(15,23,42,.97);
+  border: 1px solid rgba(56,189,248,.22);
+  border-radius: 20px; padding: 36px 32px; max-width: 420px; width: 100%;
+  box-shadow: 0 24px 60px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.03);
+  position: relative; z-index: 1;
+}
+@media (max-width: 440px) { .auth-box { padding: 28px 18px; border-radius: 16px; } }
+.auth-box h1 { font-size: 26px; font-weight: 800; letter-spacing: -.02em; margin-bottom: 4px; }
+.auth-box .subtitle { font-size: 14px; margin-bottom: 28px; }
+.auth-box .form-group label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; }
+.auth-box .form-group input {
+  background: rgba(30,41,59,.8); border: 1.5px solid rgba(51,65,85,.9);
+  border-radius: 10px; padding: 13px 14px; font-size: 15px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.auth-box .form-group input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56,189,248,.15); }
+.auth-box .btn-primary {
+  padding: 14px; font-size: 15px; font-weight: 700; border-radius: 10px;
+  background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+  box-shadow: 0 4px 14px rgba(14,165,233,.4); letter-spacing: .02em;
+  transition: transform .1s, box-shadow .15s;
+}
+.auth-box .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(14,165,233,.5); }
+.auth-box .btn-primary:active { transform: none; }
+
+/* Nav - scrollable on mobile */
+#main-nav { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+#main-nav::-webkit-scrollbar { display: none; }
+.nav-tab { white-space: nowrap; }
+
+/* Bottom nav (mobile) */
+#bottom-nav { display: none; }
+@media (max-width: 640px) {
+  #main-nav { display: none; }
+  .container { padding-bottom: 74px; }
+  #info-btn { bottom: 72px !important; right: 14px !important; }
+  #toast-container { bottom: 76px; }
+  #bottom-nav {
+    display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+    background: var(--surface); border-top: 1px solid var(--border);
+    height: 60px; padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .bnav-tab {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 2px; cursor: pointer; color: var(--text2);
+    font-size: 9px; font-weight: 600; letter-spacing: .02em;
+    background: none; border: none; padding: 6px 2px;
+    transition: color .15s; position: relative;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .bnav-tab.active { color: var(--accent); }
+  .bnav-icon { font-size: 20px; line-height: 1; }
+  .bnav-badge {
+    position: absolute; top: 4px; right: calc(50% - 18px);
+    background: var(--danger); color: #fff; font-size: 9px; font-weight: 700;
+    padding: 1px 4px; border-radius: 8px; min-width: 15px;
+    text-align: center; line-height: 1.5;
+  }
+}
+
+/* Match cards */
+.match-card { border-radius: 12px; padding: 14px; transition: border-color .2s; }
+.match-card:hover { border-color: rgba(56,189,248,.35); }
+.team-name { font-size: 14px; font-weight: 700; }
+.match-result {
+  background: rgba(56,189,248,.1); border-radius: 8px;
+  padding: 4px 10px; min-width: 58px; font-size: 18px; font-weight: 800;
+}
+.match-card.match-live { box-shadow: 0 0 16px rgba(239,68,68,.12); }
+.tip-input {
+  width: 54px; height: 46px; font-size: 18px; font-weight: 800;
+  border-radius: 10px; border: 1.5px solid var(--border);
+  transition: border-color .15s, box-shadow .15s;
+}
+.tip-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56,189,248,.15); }
+.tip-separator { font-size: 20px; }
+.tip-locked { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.tip-locked-chip {
+  display: inline-flex; align-items: center;
+  background: rgba(56,189,248,.12); border: 1px solid rgba(56,189,248,.25);
+  border-radius: 8px; padding: 5px 12px; font-size: 15px; font-weight: 800; color: var(--accent);
+}
+.tip-no-tip {
+  background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.2);
+  border-radius: 8px; padding: 5px 10px; font-size: 12px; font-weight: 600; color: var(--danger);
+}
+
+/* Group accordion */
+details.group-accordion { border-radius: 12px; }
+details.group-accordion > summary {
+  font-size: 13px; font-weight: 700; color: var(--text);
+  text-transform: none; letter-spacing: .01em; padding: 13px 14px;
+}
+details.group-accordion[open] { border-color: rgba(56,189,248,.3); }
+details.group-accordion[open] > summary { color: var(--accent); }
+
+/* Next match widget */
+.next-match-widget {
+  background: linear-gradient(135deg, rgba(56,189,248,.1) 0%, rgba(99,102,241,.07) 100%);
+  border: 1px solid rgba(56,189,248,.3); border-radius: 14px; padding: 14px 16px;
+}
+.nmw-label { color: var(--accent); font-size: 10px; font-weight: 700; }
+.nmw-teams { font-size: 16px; font-weight: 800; }
+.nmw-countdown { font-size: 26px; font-weight: 900; }
+
+/* Scoreboard podium */
+.scoreboard-podium { display: flex; gap: 8px; margin-bottom: 16px; align-items: flex-end; }
+.podium-card {
+  flex: 1; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 14px 8px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+}
+.podium-card.p1 { border-color: rgba(245,158,11,.45); background: rgba(245,158,11,.07); padding-top: 18px; padding-bottom: 18px; }
+.podium-card.p2 { border-color: rgba(148,163,184,.35); }
+.podium-card.p3 { border-color: rgba(201,124,58,.35); }
+.podium-medal { font-size: 28px; line-height: 1; }
+.podium-name { font-size: 12px; font-weight: 700; line-height: 1.3; word-break: break-word; margin-top: 2px; }
+.podium-pts { font-size: 22px; font-weight: 900; color: var(--accent); line-height: 1; }
+.podium-card.p1 .podium-pts { color: #f59e0b; font-size: 26px; }
+.podium-card.p2 .podium-pts { color: #94a3b8; }
+.podium-card.p3 .podium-pts { color: #c97c3a; }
+.podium-tipped { font-size: 10px; color: var(--text2); margin-top: 1px; }
+.podium-me { font-size: 10px; color: var(--accent2); font-weight: 600; }
+
+/* Container wider on desktop */
+@media (min-width: 900px) { .container { max-width: 860px; } }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 3px; }
+
   </style>
 </head>
 <body>
@@ -241,7 +388,8 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
   <div id="toast-container"></div>
   <div id="screen-auth">
   <div class="auth-box">
-    <h1>&#x26BD; VB Tippjáték 2026</h1>
+    <span class="auth-logo">&#x26BD;</span>
+    <h1>VB Tippjáték 2026</h1>
     <p class="subtitle">Bejelentkezés vagy regisztráció</p>
     <div id="form-login">
       <div class="form-group">
@@ -304,6 +452,7 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
     <div id="tab-admin" hidden></div>
   </div>
 </div>
+  <nav id="bottom-nav"></nav>
   <div id="bracket-modal" hidden>
     <div class="bm-backdrop" onclick="closeBracketModal()"></div>
     <div class="bm-panel">
@@ -413,7 +562,7 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
     const TABS = ['tab-matches', 'tab-pretournament', 'tab-scoreboard', 'tab-stats', 'tab-admin'];
     function showTab(id) {
       TABS.forEach(t => { document.getElementById(t).hidden = t !== id; });
-      document.querySelectorAll('.nav-tab').forEach(el => {
+      document.querySelectorAll('.nav-tab, .bnav-tab').forEach(el => {
         el.classList.toggle('active', el.dataset.tab === id);
       });
       if (id === 'tab-matches') renderMatches();
@@ -596,6 +745,8 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
       const pendingBadge = pendingCount > 0
         ? ` <span style="display:inline-block;background:var(--danger);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;vertical-align:middle;margin-left:3px;line-height:1.5">${pendingCount}</span>`
         : '';
+
+      // Top nav (desktop)
       const nav = document.getElementById('main-nav');
       nav.innerHTML = `
         <div class="nav-tab active" data-tab="tab-matches" onclick="showTab('tab-matches')">Meccsek</div>
@@ -606,6 +757,24 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
         <div class="nav-tab" onclick="doLogout()" style="max-width:60px">Ki</div>
       `;
       document.getElementById('tab-admin').hidden = !isAdminUser;
+
+      // Bottom nav (mobile)
+      const BNAV = [
+        { id: 'tab-matches',       icon: '⚽', label: 'Meccsek' },
+        { id: 'tab-pretournament', icon: '📝', label: 'Előzetes' },
+        { id: 'tab-scoreboard',    icon: '🏆', label: 'Ranglista' },
+        { id: 'tab-stats',         icon: '📊', label: 'Statisztika' },
+        ...(isAdminUser ? [{ id: 'tab-admin', icon: '⚙️', label: 'Admin' }] : []),
+      ];
+      const bnav = document.getElementById('bottom-nav');
+      if (bnav) {
+        bnav.innerHTML = BNAV.map(t => {
+          const badge = t.id === 'tab-admin' && pendingCount > 0
+            ? `<span class="bnav-badge">${pendingCount}</span>` : '';
+          const active = t.id === 'tab-matches' ? ' active' : '';
+          return `<button class="bnav-tab${active}" data-tab="${t.id}" onclick="showTab('${t.id}')">${badge}<span class="bnav-icon">${t.icon}</span><span>${t.label}</span></button>`;
+        }).join('');
+      }
     }
 
     async function loadAllData() {
@@ -1138,11 +1307,11 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
         let pts = '';
         if (hasResult) {
           const p = calculateMatchPoints(myTip, match.resultHome, match.resultAway);
-          pts = ` <span style="color:var(--accent2);font-weight:700">+${p} pt</span>`;
+          pts = `<span style="color:var(--accent2);font-size:13px;font-weight:700">+${p} pt</span>`;
         }
-        tipHtml = `<div class="tip-locked">Tipped: <strong>${myTip.home}&ndash;${myTip.away}</strong>${pts}</div>`;
+        tipHtml = `<div class="tip-locked"><span class="tip-locked-chip">${myTip.home}&ndash;${myTip.away}</span><span style="font-size:12px;color:var(--text2)">Tippem</span>${pts}</div>`;
       } else {
-        tipHtml = `<div class="tip-locked" style="color:var(--danger)">Nem tippeltél erre a meccsre.</div>`;
+        tipHtml = `<div class="tip-locked"><span class="tip-no-tip">Nem tippeltem erre</span></div>`;
       }
 
       const resultStr = hasResult ? `${match.resultHome}&ndash;${match.resultAway}` : '&ndash;';
@@ -1402,6 +1571,23 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
         return;
       }
 
+      // Podium (top 3)
+      const MEDALS = ['🥇','🥈','🥉'];
+      const PCLASS = ['p1','p2','p3'];
+      const podiumHtml = activeUsers.length >= 2 ? `
+        <div class="scoreboard-podium">
+          ${activeUsers.slice(0, Math.min(3, activeUsers.length)).map((u, i) => {
+            const isMe = u.uid === currentUser.uid;
+            return `<div class="podium-card ${PCLASS[i]}">
+              <div class="podium-medal">${MEDALS[i]}</div>
+              <div class="podium-name">${u.displayName}</div>
+              ${isMe ? '<div class="podium-me">te</div>' : ''}
+              <div class="podium-pts">${u.bd.total}</div>
+              <div class="podium-tipped">${u.tippedCount} tipp</div>
+            </div>`;
+          }).join('')}
+        </div>` : '';
+
       const rows = activeUsers.map((u, i) => {
         const isMe = u.uid === currentUser.uid;
         const rowStyle = isMe ? ' style="background:var(--surface2)"' : '';
@@ -1432,7 +1618,7 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
         return mainRow + breakdown;
       }).join('');
 
-      el.innerHTML = `
+      el.innerHTML = podiumHtml + `
         <div class="card" style="padding:0;overflow:hidden">
           <table class="scoreboard-table">
             <thead><tr>
