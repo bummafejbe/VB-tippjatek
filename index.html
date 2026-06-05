@@ -381,6 +381,26 @@ details.group-accordion[open] > summary { color: var(--accent); }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 3px; }
 
+/* Test panel */
+.test-section { margin-bottom: 24px; }
+.test-section h3 { font-size: 15px; font-weight: 700; margin: 0 0 8px; color: var(--text); }
+.test-section-header { display: grid; grid-template-columns: 1fr 100px 100px 48px; gap: 8px; padding: 4px 12px; font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.test-match-row { display: grid; grid-template-columns: 1fr 100px 100px 48px; gap: 8px; align-items: center; padding: 8px 12px; background: var(--surface2); border-radius: var(--radius); margin-bottom: 5px; }
+.test-match-name { font-size: 13px; color: var(--text); }
+.test-inputs { display: flex; align-items: center; gap: 4px; }
+.test-result-input { width: 40px; padding: 4px 0; background: rgba(56,189,248,0.1); border: 1px solid var(--accent); border-radius: 6px; color: var(--text); font-size: 14px; text-align: center; }
+.test-tip-input { width: 40px; padding: 4px 0; background: rgba(34,197,94,0.1); border: 1px solid var(--accent2); border-radius: 6px; color: var(--text); font-size: 14px; text-align: center; }
+.test-result-input::-webkit-inner-spin-button, .test-tip-input::-webkit-inner-spin-button { display: none; }
+.test-pts-badge { min-width: 40px; text-align: center; font-size: 14px; font-weight: 700; color: var(--accent2); }
+.test-pts-badge.zero { color: var(--text2); }
+.test-total-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--surface); border-radius: var(--radius); margin-top: 8px; border: 1px solid var(--border); }
+@media (max-width: 480px) {
+  .test-section-header { grid-template-columns: 1fr 90px 90px 40px; font-size: 10px; padding: 4px 8px; }
+  .test-match-row { grid-template-columns: 1fr 90px 90px 40px; padding: 8px; }
+  .test-match-name { font-size: 12px; }
+  .test-result-input, .test-tip-input { width: 36px; font-size: 13px; }
+}
+
   </style>
 </head>
 <body>
@@ -1293,8 +1313,8 @@ details.group-accordion[open] > summary { color: var(--accent); }
 
       let tipHtml = '';
       if (!locked) {
-        const h = myTip !== null ? myTip.home : '';
-        const a = myTip !== null ? myTip.away : '';
+        const h = myTip != null ? myTip.home : 0;
+        const a = myTip != null ? myTip.away : 0;
         tipHtml = `
           <div class="tip-row">
             <input class="tip-input" type="number" min="0" max="20" id="tip-h-${match.id}" value="${h}" placeholder="0">
@@ -1709,10 +1729,11 @@ details.group-accordion[open] > summary { color: var(--accent); }
       const pending = Object.entries(allUsers).filter(([, u]) => u.status === 'pending');
       const active = Object.entries(allUsers).filter(([, u]) => u.status === 'active');
 
-      const subNav = `<div style="display:flex;gap:8px;margin-bottom:16px">
+      const subNav = `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
         <button class="btn btn-primary btn-sm">Felhasználók</button>
         <button class="btn btn-ghost btn-sm" onclick="renderAdminResults()">Eredmények</button>
         <button class="btn btn-ghost btn-sm" onclick="renderAdminConfig()">Beállítások</button>
+        <button class="btn btn-ghost btn-sm" onclick="renderAdminTest()">Teszt</button>
       </div>`;
 
       const pendingHtml = pending.length ? pending.map(([uid, u]) => `
@@ -1812,10 +1833,11 @@ details.group-accordion[open] > summary { color: var(--accent); }
     function renderAdminResults(filter) {
       if (filter !== undefined) _adminResultFilter = filter;
       const el = document.getElementById('tab-admin');
-      const subNav = `<div style="display:flex;gap:8px;margin-bottom:16px">
+      const subNav = `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
         <button class="btn btn-ghost btn-sm" onclick="renderAdminUsers()">Felhasználók</button>
         <button class="btn btn-primary btn-sm">Eredmények</button>
         <button class="btn btn-ghost btn-sm" onclick="renderAdminConfig()">Beállítások</button>
+        <button class="btn btn-ghost btn-sm" onclick="renderAdminTest()">Teszt</button>
       </div>`;
 
       const RESULT_FILTERS = [
@@ -1896,10 +1918,11 @@ details.group-accordion[open] > summary { color: var(--accent); }
     // === RENDER: ADMIN - CONFIG ===
     function renderAdminConfig() {
       const el = document.getElementById('tab-admin');
-      const subNav = `<div style="display:flex;gap:8px;margin-bottom:16px">
+      const subNav = `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
         <button class="btn btn-ghost btn-sm" onclick="renderAdminUsers()">Felhasználók</button>
         <button class="btn btn-ghost btn-sm" onclick="renderAdminResults()">Eredmények</button>
         <button class="btn btn-primary btn-sm">Beállítások</button>
+        <button class="btn btn-ghost btn-sm" onclick="renderAdminTest()">Teszt</button>
       </div>`;
 
       const groupQualHtml = GROUPS.map(g => {
@@ -2015,6 +2038,128 @@ details.group-accordion[open] > summary { color: var(--accent); }
       await fbPatch('config', { groupQualifiers });
       appConfig.groupQualifiers = groupQualifiers;
       document.getElementById('gq-status').textContent = '&#x2713; Csoporttovábbjutók mentve';
+    }
+
+    // === ADMIN TEST PANEL ===
+    const TEST_GROUP_MATCHES = [
+      { id: 'g1', home: 'Brazília', away: 'Argentína' },
+      { id: 'g2', home: 'Mexikó', away: 'Spanyolország' },
+      { id: 'g3', home: 'Brazília', away: 'Mexikó' },
+      { id: 'g4', home: 'Argentína', away: 'Spanyolország' },
+      { id: 'g5', home: 'Brazília', away: 'Spanyolország' },
+      { id: 'g6', home: 'Argentína', away: 'Mexikó' },
+    ];
+
+    const TEST_KO_MATCHES = [
+      { id: 'k1', home: 'Franciaország', away: 'Anglia', round: 'Negyed' },
+      { id: 'k2', home: 'Portugália', away: 'Németország', round: 'Negyed' },
+      { id: 'k3', home: 'Hollandia', away: 'Olaszország', round: 'Negyed' },
+      { id: 'k4', home: 'Spanyolország', away: 'Brazília', round: 'Negyed' },
+      { id: 'k5', home: 'W(Negyed 1)', away: 'W(Negyed 2)', round: 'Elő' },
+      { id: 'k6', home: 'W(Negyed 3)', away: 'W(Negyed 4)', round: 'Elő' },
+      { id: 'k7', home: 'W(Elő 1)', away: 'W(Elő 2)', round: 'Döntő ⭐' },
+    ];
+
+    function recalcTestRow(id, prefix) {
+      const rh = parseInt(document.getElementById(`test-rh-${id}`)?.value);
+      const ra = parseInt(document.getElementById(`test-ra-${id}`)?.value);
+      const th = parseInt(document.getElementById(`test-th-${id}`)?.value);
+      const ta = parseInt(document.getElementById(`test-ta-${id}`)?.value);
+      const ptsEl = document.getElementById(`test-pts-${id}`);
+      if (!ptsEl) return;
+      if (isNaN(rh) || isNaN(ra) || isNaN(th) || isNaN(ta)) {
+        ptsEl.textContent = '–';
+        ptsEl.className = 'test-pts-badge';
+      } else {
+        const pts = calculateMatchPoints({ home: th, away: ta }, rh, ra);
+        ptsEl.textContent = `+${pts}`;
+        ptsEl.className = pts > 0 ? 'test-pts-badge' : 'test-pts-badge zero';
+      }
+      recalcTestTotal(prefix);
+    }
+
+    function recalcTestTotal(prefix) {
+      const ids = prefix === 'g'
+        ? TEST_GROUP_MATCHES.map(m => m.id)
+        : TEST_KO_MATCHES.map(m => m.id);
+      let total = 0;
+      for (const id of ids) {
+        const ptsEl = document.getElementById(`test-pts-${id}`);
+        if (ptsEl && ptsEl.textContent.startsWith('+')) {
+          total += parseInt(ptsEl.textContent.slice(1)) || 0;
+        }
+      }
+      const totalEl = document.getElementById(`test-total-${prefix}`);
+      if (totalEl) totalEl.textContent = total;
+    }
+
+    function buildTestMatchRow(m, prefix) {
+      const roundBadge = m.round
+        ? `<span style="display:inline-block;background:var(--surface);border-radius:4px;font-size:10px;padding:1px 5px;margin-right:4px;color:var(--text2)">${m.round}</span>`
+        : '';
+      return `
+        <div class="test-match-row">
+          <span class="test-match-name">${roundBadge}${m.home} – ${m.away}</span>
+          <div class="test-inputs">
+            <input type="number" id="test-rh-${m.id}" class="test-result-input" min="0" max="20" placeholder="–" oninput="recalcTestRow('${m.id}','${prefix}')">
+            <span style="color:var(--text2);padding:0 2px">–</span>
+            <input type="number" id="test-ra-${m.id}" class="test-result-input" min="0" max="20" placeholder="–" oninput="recalcTestRow('${m.id}','${prefix}')">
+          </div>
+          <div class="test-inputs">
+            <input type="number" id="test-th-${m.id}" class="test-tip-input" min="0" max="20" placeholder="–" oninput="recalcTestRow('${m.id}','${prefix}')">
+            <span style="color:var(--text2);padding:0 2px">–</span>
+            <input type="number" id="test-ta-${m.id}" class="test-tip-input" min="0" max="20" placeholder="–" oninput="recalcTestRow('${m.id}','${prefix}')">
+          </div>
+          <span class="test-pts-badge" id="test-pts-${m.id}">–</span>
+        </div>`;
+    }
+
+    function renderAdminTest() {
+      const subNav = `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" onclick="renderAdminUsers()">Felhasználók</button>
+        <button class="btn btn-ghost btn-sm" onclick="renderAdminResults()">Eredmények</button>
+        <button class="btn btn-ghost btn-sm" onclick="renderAdminConfig()">Beállítások</button>
+        <button class="btn btn-primary btn-sm">Teszt</button>
+      </div>`;
+
+      const sectionHeader = `
+        <div class="test-section-header">
+          <span>Meccs</span>
+          <span style="color:var(--accent)">Eredmény</span>
+          <span style="color:var(--accent2)">Tippem</span>
+          <span>Pont</span>
+        </div>`;
+
+      const groupRows = TEST_GROUP_MATCHES.map(m => buildTestMatchRow(m, 'g')).join('');
+      const koRows = TEST_KO_MATCHES.map(m => buildTestMatchRow(m, 'k')).join('');
+
+      document.getElementById('tab-admin').innerHTML = `${subNav}
+        <div style="background:var(--surface2);border-radius:var(--radius);padding:12px 16px;margin-bottom:20px;font-size:13px;color:var(--text2);line-height:1.6">
+          ℹ️ <strong style="color:var(--text)">Tesztpanel</strong> — nem ír Firebase-be.<br>
+          <span style="color:var(--accent)">&#x25A0; Kék mező</span> = eredmény (admin) &nbsp;&nbsp;
+          <span style="color:var(--accent2)">&#x25A0; Zöld mező</span> = tipped (felhasználó)
+        </div>
+
+        <div class="test-section">
+          <h3>&#x26BD; A csoport tesztelés (6 meccs)</h3>
+          ${sectionHeader}
+          ${groupRows}
+          <div class="test-total-bar">
+            <span style="color:var(--text2)">A csoport összpontszám:</span>
+            <span style="font-size:20px;font-weight:800;color:var(--accent2)"><span id="test-total-g">0</span> pt</span>
+          </div>
+        </div>
+
+        <div class="test-section">
+          <h3>&#x1F3C6; Kieséses szakasz tesztelés (7 meccs)</h3>
+          ${sectionHeader}
+          ${koRows}
+          <div class="test-total-bar">
+            <span style="color:var(--text2)">Kieséses összpontszám:</span>
+            <span style="font-size:20px;font-weight:800;color:var(--accent2)"><span id="test-total-k">0</span> pt</span>
+          </div>
+        </div>
+      `;
     }
   </script>
 </body>
