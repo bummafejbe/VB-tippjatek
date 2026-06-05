@@ -160,6 +160,59 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
 .badge-admin { background: #7c3aed33; color: #a78bfa; }
 .badge-override { background: #ef444433; color: var(--danger); }
 
+/* LIVE badge */
+@keyframes live-pulse { 0%,100% { opacity:1; } 50% { opacity:.5; } }
+.badge-live { background:#ef444433; color:var(--danger); animation:live-pulse 1.4s ease-in-out infinite; }
+.match-card.match-live { border-color:#ef444466; box-shadow:0 0 0 1px #ef444422; }
+.bk-live-dot { position:absolute; top:4px; right:14px; width:6px; height:6px; background:var(--danger); border-radius:50%; animation:live-pulse 1.4s ease-in-out infinite; }
+
+/* Bracket scroll hint */
+.bracket-scroll-hint { display:none; font-size:11px; color:var(--text2); text-align:center; margin-bottom:6px; letter-spacing:.03em; }
+@media (max-width:520px) { .bracket-scroll-hint { display:block; } }
+.bracket-scroll-wrap { position:relative; }
+.bracket-scroll-wrap::after { content:''; position:absolute; right:0; top:0; bottom:12px; width:32px; background:linear-gradient(to right,transparent,var(--bg)); pointer-events:none; transition:opacity .3s; }
+.bracket-scroll-wrap.at-end::after { opacity:0; }
+.bk-card:active { border-color:var(--accent); background:#1e3558; transform:scale(.98); transition:transform .08s; }
+
+/* Toast / banner */
+#app-banner { position:sticky; top:0; z-index:20; background:var(--danger); color:#fff; font-size:13px; font-weight:600; padding:8px 16px; text-align:center; display:none; }
+#app-banner.visible { display:block; }
+#toast-container { position:fixed; bottom:72px; left:50%; transform:translateX(-50%); z-index:300; display:flex; flex-direction:column; gap:8px; pointer-events:none; width:min(90vw,360px); }
+.toast { background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); padding:10px 14px; font-size:13px; color:var(--text); box-shadow:0 4px 20px rgba(0,0,0,.4); animation:toast-in .2s ease; }
+.toast.toast-error { border-color:var(--danger); color:var(--danger); }
+.toast.toast-ok { border-color:var(--accent2); color:var(--accent2); }
+@keyframes toast-in { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+
+/* Nav tab active bg */
+.nav-tab.active { color:var(--accent); border-bottom-color:var(--accent); background:rgba(56,189,248,.06); }
+
+/* Next match widget */
+.next-match-widget { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:12px 16px; margin-bottom:12px; }
+.nmw-label { font-size:10px; color:var(--text2); text-transform:uppercase; letter-spacing:.07em; margin-bottom:3px; }
+.nmw-teams { font-size:15px; font-weight:700; margin-bottom:4px; }
+.nmw-row { display:flex; align-items:center; gap:12px; }
+.nmw-countdown { font-size:22px; font-weight:800; color:var(--accent); font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+.nmw-tipped { font-size:12px; color:var(--accent2); }
+.nmw-untipped { font-size:12px; color:var(--danger); font-weight:600; }
+
+/* Scoreboard breakdown */
+.sb-breakdown { display:none; background:var(--surface2); }
+.sb-breakdown.open { display:table-row; }
+.sb-breakdown td { padding:6px 10px 10px; font-size:12px; color:var(--text2); }
+.sb-breakdown-grid { display:flex; gap:16px; }
+.sb-breakdown-item { display:flex; flex-direction:column; gap:2px; }
+.sb-breakdown-val { font-size:15px; font-weight:700; color:var(--text); }
+.sb-breakdown-key { font-size:11px; color:var(--text2); }
+.sb-expand-btn { cursor:pointer; background:none; border:none; color:var(--text2); font-size:12px; padding:0 4px; }
+
+/* Stats tab */
+.stat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px; }
+.stat-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px; display:flex; gap:12px; align-items:flex-start; }
+.stat-icon { font-size:22px; flex-shrink:0; }
+.stat-val { font-size:16px; font-weight:700; line-height:1.1; }
+.stat-label { font-size:11px; color:var(--text2); text-transform:uppercase; letter-spacing:.05em; margin-top:2px; }
+.stat-sub { font-size:12px; color:var(--accent); margin-top:3px; }
+
 /* Results admin */
 .result-row { display: grid; grid-template-columns: 1fr auto 1fr auto; align-items: center; gap: 8px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
 .result-team { font-size: 13px; font-weight: 600; }
@@ -184,6 +237,8 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
   </style>
 </head>
 <body>
+  <div id="app-banner"></div>
+  <div id="toast-container"></div>
   <div id="screen-auth">
   <div class="auth-box">
     <h1>&#x26BD; VB Tippjáték 2026</h1>
@@ -245,6 +300,7 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
     <div id="tab-matches"></div>
     <div id="tab-pretournament" hidden></div>
     <div id="tab-scoreboard" hidden></div>
+    <div id="tab-stats" hidden></div>
     <div id="tab-admin" hidden></div>
   </div>
 </div>
@@ -336,11 +392,15 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
     let currentUserData = null;
     let isAdminUser = false;
     let apiPollTimer = null;
+    let _nextMatchTimer = null;
     let allMatches = {};
     let allTips = {};
     let allUsers = {};
     let appConfig = {};
     let allPretournament = {};
+    let matchFilter = 'all';
+    const _expandedUsers = new Set();
+    let _adminResultFilter = 'no_result';
 
     // === SCREEN ROUTER ===
     const SCREENS = ['screen-auth', 'screen-pending', 'screen-app'];
@@ -350,7 +410,7 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
       document.getElementById('info-btn').hidden = !inApp;
     }
 
-    const TABS = ['tab-matches', 'tab-pretournament', 'tab-scoreboard', 'tab-admin'];
+    const TABS = ['tab-matches', 'tab-pretournament', 'tab-scoreboard', 'tab-stats', 'tab-admin'];
     function showTab(id) {
       TABS.forEach(t => { document.getElementById(t).hidden = t !== id; });
       document.querySelectorAll('.nav-tab').forEach(el => {
@@ -359,6 +419,7 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
       if (id === 'tab-matches') renderMatches();
       if (id === 'tab-pretournament') renderPreTournament();
       if (id === 'tab-scoreboard') renderScoreboard();
+      if (id === 'tab-stats') renderStats();
       if (id === 'tab-admin') renderAdminUsers();
     }
 
@@ -471,6 +532,7 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
 
     async function doLogout() {
       clearInterval(apiPollTimer);
+      clearInterval(_nextMatchTimer);
       currentUser = null; currentUserData = null; isAdminUser = false;
       allMatches = {}; allTips = {}; allUsers = {};
       await auth.signOut();
@@ -523,35 +585,62 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
       buildNav();
       showScreen('screen-app');
       await loadAllData();
+      buildNav();
       await seedMatchesIfNeeded();
       showTab('tab-matches');
     }
 
     function buildNav() {
+      const pendingCount = isAdminUser
+        ? Object.values(allUsers).filter(u => u.status === 'pending').length : 0;
+      const pendingBadge = pendingCount > 0
+        ? ` <span style="display:inline-block;background:var(--danger);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;vertical-align:middle;margin-left:3px;line-height:1.5">${pendingCount}</span>`
+        : '';
       const nav = document.getElementById('main-nav');
       nav.innerHTML = `
         <div class="nav-tab active" data-tab="tab-matches" onclick="showTab('tab-matches')">Meccsek</div>
         <div class="nav-tab" data-tab="tab-pretournament" onclick="showTab('tab-pretournament')">Előzetes</div>
         <div class="nav-tab" data-tab="tab-scoreboard" onclick="showTab('tab-scoreboard')">Ranglista</div>
-        ${isAdminUser ? '<div class="nav-tab" data-tab="tab-admin" onclick="showTab(\'tab-admin\')">Admin</div>' : ''}
+        <div class="nav-tab" data-tab="tab-stats" onclick="showTab('tab-stats')">Statisztikák</div>
+        ${isAdminUser ? `<div class="nav-tab" data-tab="tab-admin" onclick="showTab('tab-admin')">Admin${pendingBadge}</div>` : ''}
         <div class="nav-tab" onclick="doLogout()" style="max-width:60px">Ki</div>
       `;
       document.getElementById('tab-admin').hidden = !isAdminUser;
     }
 
     async function loadAllData() {
-      const [matchesRaw, tipsRaw, usersRaw, configRaw, pretournRaw] = await Promise.all([
-        fbGet('matches').catch(() => null),
-        fbGet('tips').catch(() => null),
-        fbGet('users').catch(() => null),
-        fbGet('config').catch(() => null),
-        fbGet('pretournament').catch(() => null),
-      ]);
+      const keys = ['matches','tips','users','config','pretournament'];
+      const results = await Promise.all(keys.map(k => fbGet(k).catch(() => null)));
+      const [matchesRaw, tipsRaw, usersRaw, configRaw, pretournRaw] = results;
       allMatches = matchesRaw || {};
       allTips = tipsRaw || {};
       allUsers = usersRaw || {};
       appConfig = configRaw || {};
       allPretournament = pretournRaw || {};
+      const failed = keys.filter((_, i) => results[i] === null);
+      if (failed.length > 0) showBanner(`Adatbetöltési hiba (${failed.join(', ')}). Töltsd újra az oldalt!`);
+      else hideBanner();
+    }
+
+    // === NOTIFICATIONS ===
+    function showBanner(msg) {
+      const el = document.getElementById('app-banner');
+      if (!el) return;
+      el.textContent = msg;
+      el.classList.add('visible');
+    }
+    function hideBanner() {
+      const el = document.getElementById('app-banner');
+      if (el) el.classList.remove('visible');
+    }
+    function showToast(msg, type = '') {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      const div = document.createElement('div');
+      div.className = 'toast' + (type ? ` toast-${type}` : '');
+      div.textContent = msg;
+      container.appendChild(div);
+      setTimeout(() => div.remove(), 3500);
     }
 
     // === API SYNC ===
@@ -664,8 +753,10 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
         const away = (m.away && m.away !== 'TBD') ? m.away : `<span class="bk-tbd">TBD</span>`;
         const cls = isFinal ? 'bk-card bk-final' : 'bk-card';
         const lbl = label ? `<div class="bk-extra-label" style="left:${x}px;top:${y-14}px">${label}</div>` : '';
+        const live = isMatchLive(m);
+        const liveDot = live ? '<div class="bk-live-dot"></div>' : '';
         return lbl + `<div class="${cls}" data-mid="${id}" style="left:${x}px;top:${y}px" onclick="openBracketModal('${id}')">
-          ${hasTip ? '<div class="bk-tipped"></div>' : ''}
+          ${hasTip ? '<div class="bk-tipped"></div>' : ''}${liveDot}
           <div class="bk-row"><span class="bk-team">${home}</span><span class="bk-score">${homeScore}</span></div>
           <div class="bk-divider"></div>
           <div class="bk-row"><span class="bk-team">${away}</span><span class="bk-score">${awayScore}</span></div>
@@ -703,13 +794,16 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
         `<div class="bracket-rh" style="width:${i<4?BCOL_W:BCARD_W}px">${l}</div>`).join('');
 
       return `<div class="bracket-section-title">Kieséses Szakasz</div>
-        <div class="bracket-scroll">
-          <div class="bracket-round-headers">${hdrs}</div>
-          <div class="bracket-canvas" style="width:${totalW}px;height:${totalH}px">
-            <svg class="bracket-svg" width="${totalW}" height="${totalH}">
-              <g stroke="#334155" stroke-width="1.5" fill="none">${lines}</g>
-            </svg>
-            ${cards}
+        <div class="bracket-scroll-hint">&#x2194; Csúsztass vízszintesen a teljes bracket megtekintéséhez</div>
+        <div class="bracket-scroll-wrap">
+          <div class="bracket-scroll" onscroll="updateBracketScrollFade(this)">
+            <div class="bracket-round-headers">${hdrs}</div>
+            <div class="bracket-canvas" style="width:${totalW}px;height:${totalH}px">
+              <svg class="bracket-svg" width="${totalW}" height="${totalH}">
+                <g stroke="#334155" stroke-width="1.5" fill="none">${lines}</g>
+              </svg>
+              ${cards}
+            </div>
           </div>
         </div>`;
     }
@@ -757,7 +851,7 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
 
       document.getElementById('bracket-modal-content').innerHTML = `
         <div class="bm-round">${roundLabel}</div>
-        <div class="bm-date">${formatDatetime(m.datetime)}</div>
+        <div class="bm-date">${formatDatetimeSmart(m.datetime)} <span style="color:var(--text2);font-size:11px">(${formatDatetime(m.datetime)})</span></div>
         <div class="bm-teams">
           <div class="bm-tname">${m.home || 'TBD'}</div>
           <div class="bm-tscore">${resultStr}</div>
@@ -771,24 +865,117 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
       document.getElementById('bracket-modal').hidden = true;
     }
 
+    function updateBracketScrollFade(el) {
+      const wrap = el.parentElement;
+      if (!wrap) return;
+      const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 4;
+      wrap.classList.toggle('at-end', atEnd);
+    }
+
     async function saveBracketTip(matchId) {
       const home = parseInt(document.getElementById('bm-h').value);
       const away = parseInt(document.getElementById('bm-a').value);
       if (isNaN(home) || isNaN(away) || home < 0 || away < 0) return;
       const uid = currentUser.uid;
       const tip = { home, away, submittedAt: new Date().toISOString() };
-      await fbPut(`tips/${uid}/${matchId}`, tip);
-      if (!allTips[uid]) allTips[uid] = {};
-      allTips[uid][matchId] = tip;
-      const s = document.getElementById('bm-status');
-      if (s) { s.style.display='inline'; setTimeout(() => { s.style.display='none'; }, 2000); }
-      // update tipped dot on bracket card
-      const card = document.querySelector(`.bk-card[data-mid="${matchId}"]`);
-      if (card && !card.querySelector('.bk-tipped')) {
-        const dot = document.createElement('div');
-        dot.className = 'bk-tipped';
-        card.appendChild(dot);
+      try {
+        await fbPut(`tips/${uid}/${matchId}`, tip);
+        if (!allTips[uid]) allTips[uid] = {};
+        allTips[uid][matchId] = tip;
+        const s = document.getElementById('bm-status');
+        if (s) { s.style.display='inline'; setTimeout(() => { s.style.display='none'; }, 2000); }
+        const card = document.querySelector(`.bk-card[data-mid="${matchId}"]`);
+        if (card && !card.querySelector('.bk-tipped')) {
+          const dot = document.createElement('div');
+          dot.className = 'bk-tipped';
+          card.appendChild(dot);
+        }
+      } catch {
+        showToast('Mentési hiba — ellenőrizd az internetkapcsolatot!', 'error');
       }
+    }
+
+    // === GROUP TABLE ===
+    function computeGroupTable(groupKey) {
+      const matches = Object.values(allMatches).filter(m => m.group === groupKey);
+      const teams = {};
+      for (const m of matches) {
+        if (!teams[m.home]) teams[m.home] = {P:0,W:0,D:0,L:0,GF:0,GA:0,Pts:0};
+        if (!teams[m.away]) teams[m.away] = {P:0,W:0,D:0,L:0,GF:0,GA:0,Pts:0};
+        if (m.resultHome == null || m.resultAway == null) continue;
+        const h = teams[m.home], a = teams[m.away];
+        h.P++; a.P++;
+        h.GF += m.resultHome; h.GA += m.resultAway;
+        a.GF += m.resultAway; a.GA += m.resultHome;
+        if (m.resultHome > m.resultAway)      { h.W++; h.Pts += 3; a.L++; }
+        else if (m.resultHome < m.resultAway) { a.W++; a.Pts += 3; h.L++; }
+        else                                  { h.D++; h.Pts++;   a.D++; a.Pts++; }
+      }
+      return Object.entries(teams).sort((a,b) => b[1].Pts - a[1].Pts || (b[1].GF-b[1].GA) - (a[1].GF-a[1].GA) || b[1].GF - a[1].GF);
+    }
+
+    function renderGroupTable(groupKey) {
+      if (!groupKey.startsWith('GROUP_')) return '';
+      const rows = computeGroupTable(groupKey);
+      if (!rows.length || rows.every(([,r]) => r.P === 0)) return '';
+      const rowsHtml = rows.map(([name, r], i) => `
+        <tr>
+          <td style="color:var(--text2);text-align:center">${i+1}.</td>
+          <td style="font-weight:600">${name}</td>
+          <td style="text-align:center">${r.P}</td>
+          <td style="text-align:center">${r.W}</td>
+          <td style="text-align:center">${r.D}</td>
+          <td style="text-align:center">${r.L}</td>
+          <td style="text-align:center">${r.GF}:${r.GA}</td>
+          <td style="text-align:center;font-weight:700;color:var(--accent)">${r.Pts}</td>
+        </tr>`).join('');
+      return `<div style="margin-top:10px;overflow-x:auto">
+        <table class="scoreboard-table" style="font-size:12px;width:100%">
+          <thead><tr><th>#</th><th>Csapat</th><th title="Mérkőzések">M</th><th title="Győzelem">Gy</th><th title="Döntetlen">D</th><th title="Vereség">V</th><th>Gól</th><th>P</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>`;
+    }
+
+    // === NEXT MATCH WIDGET ===
+    function renderNextMatchWidget() {
+      const el = document.getElementById('next-match-widget');
+      if (!el) return;
+      const now = new Date();
+      const uid = currentUser ? currentUser.uid : null;
+      const myTips = uid ? (allTips[uid] || {}) : {};
+      const upcoming = Object.values(allMatches)
+        .filter(m => new Date(m.datetime) > now)
+        .sort((a,b) => new Date(a.datetime) - new Date(b.datetime));
+      const next = upcoming[0];
+      if (!next) { el.innerHTML = ''; return; }
+      const diff = new Date(next.datetime) - now;
+      const totalMin = Math.floor(diff / 60000);
+      let countdown;
+      if (totalMin >= 60) {
+        const h = Math.floor(totalMin / 60), m = totalMin % 60;
+        countdown = `${h}ó ${m < 10 ? '0' : ''}${m}p`;
+      } else {
+        const m = Math.floor(diff / 60000), s = Math.floor((diff % 60000) / 1000);
+        countdown = `${m}p ${s < 10 ? '0' : ''}${s}mp`;
+      }
+      const isTipped = !!myTips[next.id];
+      el.innerHTML = `<div class="next-match-widget">
+        <div class="nmw-label">Következő meccs</div>
+        <div class="nmw-teams">${next.home} — ${next.away}</div>
+        <div class="nmw-row">
+          <div class="nmw-countdown">${countdown}</div>
+          ${isTipped
+            ? '<span class="nmw-tipped">&#x2713; Tippelve</span>'
+            : '<span class="nmw-untipped">Még nem tippeltem!</span>'}
+        </div>
+      </div>`;
+    }
+
+    function startNextMatchWidget() {
+      if (_nextMatchTimer) clearInterval(_nextMatchTimer);
+      renderNextMatchWidget();
+      _nextMatchTimer = setInterval(renderNextMatchWidget, 1000);
     }
 
     // === RENDER: MATCHES ===
@@ -818,6 +1005,41 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
       return new Date() >= new Date(match.datetime);
     }
 
+    function isMatchLive(match) {
+      const now = new Date();
+      const start = new Date(match.datetime);
+      const end = new Date(start.getTime() + 110 * 60 * 1000);
+      return now >= start && now < end && match.resultHome == null;
+    }
+
+    function formatDatetimeSmart(isoStr) {
+      const d = new Date(isoStr);
+      const now = new Date();
+      const diffMs = d - now;
+      if (diffMs <= 0) return formatDatetime(isoStr);
+      const diffMin = Math.floor(diffMs / 60000);
+      const diffH = Math.floor(diffMin / 60);
+      const remMin = diffMin % 60;
+      if (diffH < 24) {
+        if (diffH === 0) return `${diffMin}p múlva`;
+        if (remMin === 0) return `${diffH}ó múlva`;
+        return `${diffH}ó ${remMin}p múlva`;
+      }
+      return formatDatetime(isoStr);
+    }
+
+    // === MATCH FILTER ===
+    function setMatchFilter(f) { matchFilter = f; renderMatches(); }
+    function matchPassesFilter(m, myTips) {
+      const locked = isMatchLocked(m);
+      const hasResult = m.resultHome != null && m.resultAway != null;
+      const hasTip = !!(myTips[m.id]);
+      if (matchFilter === 'open')     return !locked;
+      if (matchFilter === 'played')   return hasResult;
+      if (matchFilter === 'untipped') return !locked && !hasTip;
+      return true;
+    }
+
     function renderMatches() {
       const el = document.getElementById('tab-matches');
       const myTips = allTips[currentUser.uid] || {};
@@ -831,31 +1053,50 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
         grouped[g].sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
       }
 
+      const FILTER_BTNS = [
+        { key: 'all', label: 'Összes' },
+        { key: 'open', label: 'Nyitott' },
+        { key: 'played', label: 'Lejátszott' },
+        { key: 'untipped', label: 'Nem tippeltem' },
+      ];
+      const filterHtml = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+        ${FILTER_BTNS.map(f => `<button class="btn btn-sm ${matchFilter===f.key?'btn-primary':'btn-ghost'}" onclick="setMatchFilter('${f.key}')">${f.label}</button>`).join('')}
+      </div>`;
+
       const renderAccordion = (groupKey, isOpen = false) => {
         if (!grouped[groupKey]) return '';
         const label = GROUP_LABELS[groupKey] || groupKey;
         const open = isOpen ? ' open' : '';
-        const cards = grouped[groupKey].map(m => renderMatchCard(m, myTips[m.id] || null)).join('');
-        return `<details class="group-accordion"${open}><summary>${label}</summary><div class="group-body">${cards}</div></details>`;
+        const filtered = grouped[groupKey].filter(m => matchPassesFilter(m, myTips));
+        if (filtered.length === 0) return '';
+        const cards = filtered.map(m => renderMatchCard(m, myTips[m.id] || null)).join('');
+        const tableHtml = renderGroupTable(groupKey);
+        return `<details class="group-accordion"${open}><summary>${label} <span style="color:var(--text2);font-size:11px;font-weight:400">(${filtered.length})</span></summary><div class="group-body">${cards}${tableHtml}</div></details>`;
       };
 
       const GROUP_STAGES = ['GROUP_A','GROUP_B','GROUP_C','GROUP_D','GROUP_E','GROUP_F','GROUP_G','GROUP_H','GROUP_I','GROUP_J','GROUP_K','GROUP_L'];
-      const KNOCKOUT_STAGES = ['LAST_32','LAST_16','ROUND_OF_16','QUARTER_FINALS','SEMI_FINALS','THIRD_PLACE','FINAL'];
+
+      if (Object.keys(allMatches).length === 0) {
+        el.innerHTML = `<div class="card" style="text-align:center;padding:32px;color:var(--text2)">
+          <div style="font-size:32px;margin-bottom:12px">&#x26BD;</div>
+          <div style="font-weight:600;margin-bottom:6px">Nincsenek meccsadatok</div>
+          <div style="font-size:13px">Az adatok betöltése folyamatban, vagy a szinkronizálás még nem futott le.</div>
+        </div>`;
+        return;
+      }
 
       const groupStageHtml = GROUP_STAGES.map((g, i) => renderAccordion(g, i < 2)).filter(Boolean).join('');
 
-      let html = '';
+      let html = '<div id="next-match-widget"></div>' + filterHtml;
       if (groupStageHtml) html += `<div class="groups-grid">${groupStageHtml}</div>`;
       html += renderKnockoutBracket();
-
-      if (!html) {
-        html = '<div class="card" style="text-align:center;color:var(--text2)">Nincsenek meccsek.</div>';
-      }
       el.innerHTML = html;
+      startNextMatchWidget();
     }
 
     function renderMatchCard(match, myTip) {
       const locked = isMatchLocked(match);
+      const live = isMatchLive(match);
       const hasResult = match.resultHome != null && match.resultAway != null;
       const uid = currentUser.uid;
 
@@ -863,10 +1104,10 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
       if (locked) {
         const tipRows = Object.entries(allTips)
           .filter(([u]) => u !== uid)
+          .filter(([, tips]) => tips[match.id])
           .map(([u, tips]) => {
             const t = tips[match.id];
             const uname = (allUsers[u] && allUsers[u].displayName) || '???';
-            if (!t) return `<div class="other-tip-row"><span>${uname}</span><span class="tip-locked">Nem tippelt</span></div>`;
             let pts = '';
             if (hasResult) {
               const p = calculateMatchPoints(t, match.resultHome, match.resultAway);
@@ -904,12 +1145,14 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
 
       const resultStr = hasResult ? `${match.resultHome}&ndash;${match.resultAway}` : '&ndash;';
       const overrideBadge = match.resultOverride ? ' <span class="badge badge-override">Admin</span>' : '';
+      const liveBadge = live ? ' <span class="badge badge-live">&#x25CF; LIVE</span>' : '';
+      const liveClass = live ? ' match-live' : '';
 
       return `
-        <div class="match-card">
+        <div class="match-card${liveClass}">
           <div class="match-meta">
-            <span>${formatDatetime(match.datetime)}</span>
-            ${overrideBadge}
+            <span>${formatDatetimeSmart(match.datetime)}</span>
+            <span>${overrideBadge}${liveBadge}</span>
           </div>
           <div class="match-teams">
             <div class="team-name">${match.home || 'TBD'}</div>
@@ -931,11 +1174,15 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
       if (isNaN(home) || isNaN(away) || home < 0 || away < 0) return;
       const uid = currentUser.uid;
       const tip = { home, away, submittedAt: new Date().toISOString() };
-      await fbPut(`tips/${uid}/${matchId}`, tip);
-      if (!allTips[uid]) allTips[uid] = {};
-      allTips[uid][matchId] = tip;
-      const statusEl = document.getElementById(`tip-status-${matchId}`);
-      if (statusEl) { statusEl.style.display = 'inline'; setTimeout(() => statusEl.style.display = 'none', 2000); }
+      try {
+        await fbPut(`tips/${uid}/${matchId}`, tip);
+        if (!allTips[uid]) allTips[uid] = {};
+        allTips[uid][matchId] = tip;
+        const statusEl = document.getElementById(`tip-status-${matchId}`);
+        if (statusEl) { statusEl.style.display = 'inline'; setTimeout(() => statusEl.style.display = 'none', 2000); }
+      } catch {
+        showToast('Mentési hiba — ellenőrizd az internetkapcsolatot!', 'error');
+      }
     }
 
     // === SCORING ===
@@ -994,16 +1241,20 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
     }
 
     function calculateUserTotal(uid) {
+      return calculateUserTotalBreakdown(uid).total;
+    }
+
+    function calculateUserTotalBreakdown(uid) {
       const myTips = allTips[uid] || {};
-      let total = 0;
+      let matchPts = 0;
       for (const [matchId, match] of Object.entries(allMatches)) {
         if (match.resultHome == null || match.resultAway == null) continue;
         const tip = myTips[matchId];
         if (!tip) continue;
-        total += calculateMatchPoints(tip, match.resultHome, match.resultAway);
+        matchPts += calculateMatchPoints(tip, match.resultHome, match.resultAway);
       }
-      total += calculatePreTournamentPoints(allPretournament && allPretournament[uid]);
-      return total;
+      const prePts = calculatePreTournamentPoints(allPretournament && allPretournament[uid]);
+      return { matchPts, prePts, total: matchPts + prePts };
     }
 
     // === PRE-TOURNAMENT ===
@@ -1127,16 +1378,22 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
     }
 
     // === RENDER: SCOREBOARD ===
+    function toggleScoreboardBreakdown(uid) {
+      const row = document.getElementById('sb-bd-' + uid);
+      if (!row) return;
+      row.classList.toggle('open');
+    }
+
     function renderScoreboard() {
       const el = document.getElementById('tab-scoreboard');
       const activeUsers = Object.entries(allUsers)
         .filter(([, u]) => u.status === 'active')
         .map(([uid, u]) => {
-          const total = calculateUserTotal(uid);
+          const bd = calculateUserTotalBreakdown(uid);
           const tippedCount = Object.keys(allTips[uid] || {}).length;
-          return { uid, displayName: u.displayName, total, tippedCount };
+          return { uid, displayName: u.displayName, bd, tippedCount };
         })
-        .sort((a, b) => b.total - a.total || b.tippedCount - a.tippedCount);
+        .sort((a, b) => b.bd.total - a.bd.total || b.tippedCount - a.tippedCount);
 
       if (activeUsers.length === 0) {
         el.innerHTML = '<div class="card" style="text-align:center;color:var(--text2)">Még nincsenek aktív játékosok.</div>';
@@ -1145,12 +1402,32 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
 
       const rows = activeUsers.map((u, i) => {
         const isMe = u.uid === currentUser.uid;
-        return `<tr ${isMe ? 'style="background:var(--surface2)"' : ''}>
+        const rowStyle = isMe ? ' style="background:var(--surface2)"' : '';
+        const mainRow = `<tr${rowStyle} onclick="toggleScoreboardBreakdown('${u.uid}')" style="${isMe?'background:var(--surface2);':''}cursor:pointer">
           <td class="rank">${i + 1}.</td>
           <td class="player-name">${u.displayName}${isMe ? ' <span style="color:var(--text2);font-size:11px">(te)</span>' : ''}</td>
           <td style="color:var(--text2);font-size:12px;text-align:center">${u.tippedCount} tipp</td>
-          <td class="score-pts">${u.total} pt</td>
+          <td class="score-pts">${u.bd.total} pt <span style="color:var(--text2);font-size:11px">&#x25BE;</span></td>
         </tr>`;
+        const breakdown = `<tr id="sb-bd-${u.uid}" class="sb-breakdown">
+          <td colspan="4">
+            <div class="sb-breakdown-grid">
+              <div class="sb-breakdown-item">
+                <span class="sb-breakdown-val">${u.bd.matchPts}</span>
+                <span class="sb-breakdown-key">Meccstipp</span>
+              </div>
+              <div class="sb-breakdown-item">
+                <span class="sb-breakdown-val">${u.bd.prePts}</span>
+                <span class="sb-breakdown-key">Előzetes</span>
+              </div>
+              <div class="sb-breakdown-item">
+                <span class="sb-breakdown-val" style="color:var(--accent)">${u.bd.total}</span>
+                <span class="sb-breakdown-key">Összesen</span>
+              </div>
+            </div>
+          </td>
+        </tr>`;
+        return mainRow + breakdown;
       }).join('');
 
       el.innerHTML = `
@@ -1161,6 +1438,80 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
             </tr></thead>
             <tbody>${rows}</tbody>
           </table>
+        </div>`;
+    }
+
+    // === RENDER: STATS ===
+    function computeStats() {
+      const finishedMatches = Object.values(allMatches).filter(m => m.resultHome != null && m.resultAway != null);
+      const totalMatches = Object.values(allMatches).length;
+      const activeUids = Object.entries(allUsers).filter(([,u]) => u.status === 'active').map(([uid]) => uid);
+
+      // Best tipper (most points from match tips only)
+      let bestTipper = null, bestTipperPts = -1;
+      for (const uid of activeUids) {
+        const bd = calculateUserTotalBreakdown(uid);
+        if (bd.matchPts > bestTipperPts) { bestTipperPts = bd.matchPts; bestTipper = allUsers[uid]?.displayName || uid; }
+      }
+
+      // Most exact scores
+      let mostExact = null, mostExactCount = -1;
+      for (const uid of activeUids) {
+        const myTips = allTips[uid] || {};
+        let exact = 0;
+        for (const m of finishedMatches) {
+          const t = myTips[m.id];
+          if (t && t.home === m.resultHome && t.away === m.resultAway) exact++;
+        }
+        if (exact > mostExactCount) { mostExactCount = exact; mostExact = allUsers[uid]?.displayName || uid; }
+      }
+
+      // Most tipped match
+      let maxTips = 0, mostTippedMatch = null;
+      for (const m of Object.values(allMatches)) {
+        let count = 0;
+        for (const uid of activeUids) { if ((allTips[uid] || {})[m.id]) count++; }
+        if (count > maxTips) { maxTips = count; mostTippedMatch = m; }
+      }
+
+      // Highest scoring match (most goals)
+      let maxGoals = -1, highestMatch = null;
+      for (const m of finishedMatches) {
+        const g = m.resultHome + m.resultAway;
+        if (g > maxGoals) { maxGoals = g; highestMatch = m; }
+      }
+
+      // Participation rate
+      const tippedAny = activeUids.filter(uid => Object.keys(allTips[uid] || {}).length > 0).length;
+
+      return { finishedMatches: finishedMatches.length, totalMatches, bestTipper, bestTipperPts, mostExact, mostExactCount, mostTippedMatch, maxTips, highestMatch, maxGoals, tippedAny, totalPlayers: activeUids.length };
+    }
+
+    function renderStatCard(icon, label, value, sub) {
+      return `<div class="stat-card">
+        <div class="stat-icon">${icon}</div>
+        <div class="stat-body">
+          <div class="stat-val">${value}</div>
+          <div class="stat-label">${label}</div>
+          ${sub ? `<div class="stat-sub">${sub}</div>` : ''}
+        </div>
+      </div>`;
+    }
+
+    function renderStats() {
+      const el = document.getElementById('tab-stats');
+      const s = computeStats();
+      const progress = s.totalMatches > 0 ? Math.round(s.finishedMatches / s.totalMatches * 100) : 0;
+
+      el.innerHTML = `
+        <h2 style="font-size:18px;font-weight:700;margin-bottom:16px">Statisztikák</h2>
+        <div class="stat-grid">
+          ${renderStatCard('&#x26BD;', 'Lejátszott meccs', `${s.finishedMatches} / ${s.totalMatches}`, `${progress}% kész`)}
+          ${s.bestTipper ? renderStatCard('&#x1F3C6;', 'Legtöbb meccspont', s.bestTipper, `${s.bestTipperPts} pont`) : ''}
+          ${s.mostExactCount > 0 ? renderStatCard('&#x1F3AF;', 'Legtöbb pontos tipp', s.mostExact, `${s.mostExactCount} telitalálat`) : ''}
+          ${s.mostTippedMatch ? renderStatCard('&#x1F4CA;', 'Legtöbbet tippelt meccs', `${s.mostTippedMatch.home} — ${s.mostTippedMatch.away}`, `${s.maxTips} tipp`) : ''}
+          ${s.highestMatch ? renderStatCard('&#x26A1;', 'Leggólosabb meccs', `${s.highestMatch.home} ${s.highestMatch.resultHome}–${s.highestMatch.resultAway} ${s.highestMatch.away}`, `${s.maxGoals} gól`) : ''}
+          ${renderStatCard('&#x1F465;', 'Aktív játékos', s.totalPlayers + ' fő', `${s.tippedAny} tippelt már`)}
         </div>`;
     }
 
@@ -1239,12 +1590,14 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
     async function approveUser(uid) {
       await fbPatch(`users/${uid}`, { status: 'active' });
       allUsers[uid].status = 'active';
+      buildNav();
       renderAdminUsers();
     }
 
     async function rejectUser(uid) {
       await fbPatch(`users/${uid}`, { status: 'banned' });
       allUsers[uid].status = 'banned';
+      buildNav();
       renderAdminUsers();
     }
 
@@ -1268,7 +1621,8 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
     }
 
     // === RENDER: ADMIN - RESULTS ===
-    function renderAdminResults() {
+    function renderAdminResults(filter) {
+      if (filter !== undefined) _adminResultFilter = filter;
       const el = document.getElementById('tab-admin');
       const subNav = `<div style="display:flex;gap:8px;margin-bottom:16px">
         <button class="btn btn-ghost btn-sm" onclick="renderAdminUsers()">Felhasználók</button>
@@ -1276,13 +1630,27 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
         <button class="btn btn-ghost btn-sm" onclick="renderAdminConfig()">Beállítások</button>
       </div>`;
 
+      const RESULT_FILTERS = [
+        { key: 'no_result', label: 'Nincs eredmény' },
+        { key: 'all', label: 'Összes' },
+        { key: 'override', label: 'Admin override' },
+      ];
+      const filterBar = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+        ${RESULT_FILTERS.map(f => `<button class="btn btn-sm ${_adminResultFilter===f.key?'btn-primary':'btn-ghost'}" onclick="renderAdminResults('${f.key}')">${f.label}</button>`).join('')}
+      </div>`;
+
       const sortedMatches = Object.entries(allMatches)
-        .sort(([, a], [, b]) => new Date(a.datetime) - new Date(b.datetime));
+        .sort(([, a], [, b]) => new Date(a.datetime) - new Date(b.datetime))
+        .filter(([, m]) => {
+          if (_adminResultFilter === 'no_result') return m.resultHome == null || m.resultAway == null;
+          if (_adminResultFilter === 'override') return m.resultOverride;
+          return true;
+        });
 
       const rows = sortedMatches.map(([id, m]) => {
         const overrideBadge = m.resultOverride ? `<span class="badge badge-override">Admin</span>` : '';
-        const rH = m.resultHome !== null && m.resultHome !== undefined ? m.resultHome : '';
-        const rA = m.resultAway !== null && m.resultAway !== undefined ? m.resultAway : '';
+        const rH = m.resultHome != null ? m.resultHome : '';
+        const rA = m.resultAway != null ? m.resultAway : '';
         return `
           <div class="match-card">
             <div class="match-meta">
@@ -1306,8 +1674,9 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
       el.innerHTML = subNav + `
         <div class="admin-section">
           <h3>Meccseredmények felülbírálása</h3>
-          <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Az "Auto" gombbal visszaállítható az API automatikus szinkronizáció.</p>
-          ${rows || '<div style="color:var(--text2);font-size:13px">Nincsenek meccsek.</div>'}
+          <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Az "Auto" gombbal visszaállítható az API automatikus szinkronizáció.</p>
+          ${filterBar}
+          ${rows || '<div style="color:var(--text2);font-size:13px;padding:8px 0">Nincs meccs ebben a szűrőben.</div>'}
         </div>`;
     }
 
@@ -1362,7 +1731,22 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
         `<option value="${t}" ${appConfig.tournamentWinner === t ? 'selected' : ''}>${t}</option>`
       ).join('');
 
+      const lastSync = appConfig.lastSync;
+      const lastSyncStatus = appConfig.lastSyncStatus || 'ok';
+      const syncColor = lastSyncStatus === 'error' ? 'var(--danger)' : 'var(--accent2)';
+      const syncIcon = lastSyncStatus === 'error' ? '&#x26A0; Hiba' : '&#x2713; OK';
+      const syncTime = lastSync ? formatDatetime(lastSync) : 'Még nem futott';
+
       el.innerHTML = subNav + `
+        <div class="admin-section" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <div>
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);margin-bottom:2px">API szinkron állapot</div>
+              <div style="font-size:14px;font-weight:600;color:${syncColor}">${syncIcon} &mdash; ${syncTime}</div>
+            </div>
+            <a class="btn btn-ghost btn-sm" href="https://github.com/bummafejbe/VB-tippjatek/actions/workflows/sync-results.yml" target="_blank">Manuális szinkron ↗</a>
+          </div>
+        </div>
         <div class="admin-section">
           <h3>API beállítások</h3>
           <div class="form-group">
@@ -1374,7 +1758,6 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
             <input type="datetime-local" id="admin-deadline" value="${appConfig.pretournamentDeadline ? appConfig.pretournamentDeadline.slice(0,16) : ''}">
           </div>
           <button class="btn btn-primary btn-sm" onclick="saveApiSettings()">Mentés</button>
-          <a class="btn btn-ghost btn-sm" href="https://github.com/bummafejbe/VB-tippjatek/actions/workflows/sync-results.yml" target="_blank" style="margin-left:8px">Szinkronizálás most ↗</a>
           <div id="admin-api-status" style="margin-top:8px;font-size:12px;color:var(--accent2)"></div>
         </div>
         <div class="admin-section">

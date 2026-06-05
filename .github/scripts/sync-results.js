@@ -24,10 +24,15 @@ function request(url, options = {}, body = null) {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          resolve(JSON.parse(data));
-        } else {
-          reject(new Error(`HTTP ${res.statusCode} ${urlObj.pathname}: ${data.slice(0, 300)}`));
+        try {
+          const parsed = JSON.parse(data);
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(parsed);
+          } else {
+            reject(new Error(`HTTP ${res.statusCode} ${urlObj.pathname}: ${data.slice(0, 300)}`));
+          }
+        } catch (e) {
+          reject(new Error(`JSON parse error from ${urlObj.pathname}: ${data.slice(0, 200)}`));
         }
       });
     });
@@ -57,10 +62,20 @@ function fbUpdate(path, data) {
   }, body);
 }
 
+function fbPatch(path, data) {
+  return fbUpdate(path, data);
+}
+
 function fetchFromFD(endpoint) {
   return request(`${FD_BASE}${endpoint}`, {
     headers: { 'X-Auth-Token': apiKey },
   });
+}
+
+async function writeLastSync(status, error) {
+  const payload = { lastSync: new Date().toISOString(), lastSyncStatus: status };
+  if (error) payload.lastSyncError = error.slice(0, 500);
+  await fbPatch('/config', payload).catch(e => console.warn('Could not write lastSync:', e.message));
 }
 
 async function main() {
@@ -100,7 +115,8 @@ async function main() {
     return;
   }
 
-  let updated = 0;
+  // Batch all updates into a single PATCH
+  const updates = {};
   for (const m of data.matches) {
     const existing = matches[m.id];
     if (!existing || existing.resultOverride) continue;
@@ -108,12 +124,29 @@ async function main() {
     const resultAway = m.score?.fullTime?.away ?? null;
     if (resultHome === null || resultAway === null) continue;
     if (existing.resultHome === resultHome && existing.resultAway === resultAway) continue;
-    await fbUpdate(`/matches/${m.id}`, { resultHome, resultAway });
-    updated++;
+    updates[m.id] = { resultHome, resultAway };
   }
-  console.log(updated > 0 ? `Updated ${updated} matches` : 'No updates needed');
+
+  const count = Object.keys(updates).length;
+  if (count > 0) {
+    // PATCH each match individually (Firebase REST doesn't support deep multi-path batch)
+    for (const [id, result] of Object.entries(updates)) {
+      await fbUpdate(`/matches/${id}`, result);
+    }
+    console.log(`Updated ${count} matches`);
+  } else {
+    console.log('No updates needed');
+  }
 }
 
 main()
-  .then(() => { console.log('Sync complete!'); process.exit(0); })
-  .catch(err => { console.error('Sync failed:', err.message); process.exit(1); });
+  .then(async () => {
+    await writeLastSync('ok');
+    console.log('Sync complete!');
+    process.exit(0);
+  })
+  .catch(async err => {
+    console.error('Sync failed:', err.message);
+    await writeLastSync('error', err.message);
+    process.exit(1);
+  });
