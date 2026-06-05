@@ -610,15 +610,17 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
 
     async function loadAllData() {
       const keys = ['matches','tips','users','config','pretournament'];
-      const results = await Promise.all(keys.map(k => fbGet(k).catch(() => null)));
+      const errors = [];
+      const results = await Promise.all(keys.map((k, i) =>
+        fbGet(k).catch(() => { errors.push(keys[i]); return null; })
+      ));
       const [matchesRaw, tipsRaw, usersRaw, configRaw, pretournRaw] = results;
       allMatches = matchesRaw || {};
       allTips = tipsRaw || {};
       allUsers = usersRaw || {};
       appConfig = configRaw || {};
       allPretournament = pretournRaw || {};
-      const failed = keys.filter((_, i) => results[i] === null);
-      if (failed.length > 0) showBanner(`Adatbetöltési hiba (${failed.join(', ')}). Töltsd újra az oldalt!`);
+      if (errors.length > 0) showBanner(`Adatbetöltési hiba (${errors.join(', ')}). Töltsd újra az oldalt!`);
       else hideBanner();
     }
 
