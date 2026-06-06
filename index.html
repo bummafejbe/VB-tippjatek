@@ -1379,30 +1379,29 @@ details.group-accordion[open] > summary { color: var(--accent); }
 
     // === SCORING ===
     const POINTS = {
-      exactScore: 7,
-      correctWinner: 2,
-      diffPlusMinus1: 1,
-      totalPlusMinus1: 1,
+      exactScore: 7,       // pontos végeredmény
+      correctDiff: 4,      // helyes kimenetel + helyes gólkülönbség
+      oneTeamGoals: 3,     // helyes kimenetel + valamelyik csapat góljai egyeznek
+      correctWinner: 2,    // csak helyes kimenetel
       groupQualifier: 2,
       topScorer: 10,
       winner: 15
     };
 
+    // Hierarchikus (kizárólagos) pontozás — csak a legmagasabb kategória érvényes
     function calculateMatchPoints(tip, resultHome, resultAway) {
       if (tip == null) return 0;
       if (resultHome == null || resultAway == null) return 0;
-      let pts = 0;
-      const tipDiff = tip.home - tip.away;
+      const tipH = tip.home, tipA = tip.away;
+      const tipDiff = tipH - tipA;
       const realDiff = resultHome - resultAway;
-      const tipTotal = tip.home + tip.away;
-      const realTotal = resultHome + resultAway;
-      const tipResult = tipDiff > 0 ? 'H' : tipDiff < 0 ? 'A' : 'D';
-      const realResult = realDiff > 0 ? 'H' : realDiff < 0 ? 'A' : 'D';
-      if (tip.home === resultHome && tip.away === resultAway) pts += POINTS.exactScore;
-      if (tipResult === realResult) pts += POINTS.correctWinner;
-      if (tipResult === realResult && Math.abs(tipDiff - realDiff) <= 1) pts += POINTS.diffPlusMinus1;
-      if (Math.abs(tipTotal - realTotal) <= 1) pts += POINTS.totalPlusMinus1;
-      return pts;
+      const tipOutcome = tipDiff > 0 ? 'H' : tipDiff < 0 ? 'A' : 'D';
+      const realOutcome = realDiff > 0 ? 'H' : realDiff < 0 ? 'A' : 'D';
+      if (tipOutcome !== realOutcome) return 0;
+      if (tipH === resultHome && tipA === resultAway) return POINTS.exactScore;
+      if (tipDiff === realDiff) return POINTS.correctDiff;
+      if (tipH === resultHome || tipA === resultAway) return POINTS.oneTeamGoals;
+      return POINTS.correctWinner;
     }
 
     function getGroupQualifiers(group) {
