@@ -1791,10 +1791,11 @@ details.group-accordion[open] > summary { color: var(--accent); }
           if (allUsers[uid]) allUsers[uid]._isAdmin = isAdmin === true;
         } catch {}
       }
-      _loadingAdminFlags = false;
       // Re-render to show badges (only if still on admin tab)
+      // Reset flag AFTER render so the re-render's loadAdminFlags() call hits the guard
       const el = document.getElementById('tab-admin');
       if (el && !el.hidden) renderAdminUsers();
+      _loadingAdminFlags = false;
     }
 
     async function approveUser(uid) {
