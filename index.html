@@ -2103,17 +2103,62 @@ details.group-accordion[open] > summary { color: var(--accent); }
         <div class="test-match-row">
           <span class="test-match-name">${roundBadge}${m.home} – ${m.away}</span>
           <div class="test-inputs">
-            <input type="number" id="test-rh-${m.id}" class="test-result-input" min="0" max="20" placeholder="–" oninput="recalcTestRow('${m.id}','${prefix}')">
+            <input type="number" id="test-rh-${m.id}" class="test-result-input" min="0" max="20" placeholder="–" oninput="recalcTestRow('${m.id}','${prefix}');saveTestCell('${m.id}','${prefix}')">
             <span style="color:var(--text2);padding:0 2px">–</span>
-            <input type="number" id="test-ra-${m.id}" class="test-result-input" min="0" max="20" placeholder="–" oninput="recalcTestRow('${m.id}','${prefix}')">
+            <input type="number" id="test-ra-${m.id}" class="test-result-input" min="0" max="20" placeholder="–" oninput="recalcTestRow('${m.id}','${prefix}');saveTestCell('${m.id}','${prefix}')">
           </div>
           <div class="test-inputs">
-            <input type="number" id="test-th-${m.id}" class="test-tip-input" min="0" max="20" placeholder="–" oninput="recalcTestRow('${m.id}','${prefix}')">
+            <input type="number" id="test-th-${m.id}" class="test-tip-input" min="0" max="20" placeholder="–" oninput="recalcTestRow('${m.id}','${prefix}');saveTestCell('${m.id}','${prefix}')">
             <span style="color:var(--text2);padding:0 2px">–</span>
-            <input type="number" id="test-ta-${m.id}" class="test-tip-input" min="0" max="20" placeholder="–" oninput="recalcTestRow('${m.id}','${prefix}')">
+            <input type="number" id="test-ta-${m.id}" class="test-tip-input" min="0" max="20" placeholder="–" oninput="recalcTestRow('${m.id}','${prefix}');saveTestCell('${m.id}','${prefix}')">
           </div>
           <span class="test-pts-badge" id="test-pts-${m.id}">–</span>
         </div>`;
+    }
+
+    function saveTestCell(id, prefix) {
+      const rh = document.getElementById(`test-rh-${id}`)?.value;
+      const ra = document.getElementById(`test-ra-${id}`)?.value;
+      const th = document.getElementById(`test-th-${id}`)?.value;
+      const ta = document.getElementById(`test-ta-${id}`)?.value;
+      if (rh === '' && ra === '' && th === '' && ta === '') {
+        fbDelete(`/testEnv/${id}`).catch(() => {});
+      } else {
+        const patch = {};
+        if (rh !== '') patch.rh = parseInt(rh);
+        if (ra !== '') patch.ra = parseInt(ra);
+        if (th !== '') patch.th = parseInt(th);
+        if (ta !== '') patch.ta = parseInt(ta);
+        fbPatch(`/testEnv/${id}`, patch).catch(() => {});
+      }
+    }
+
+    async function loadTestData() {
+      const data = await fbGet('/testEnv').catch(() => null);
+      if (!data) return;
+      for (const [id, vals] of Object.entries(data)) {
+        if (vals.rh != null) { const el = document.getElementById(`test-rh-${id}`); if (el) el.value = vals.rh; }
+        if (vals.ra != null) { const el = document.getElementById(`test-ra-${id}`); if (el) el.value = vals.ra; }
+        if (vals.th != null) { const el = document.getElementById(`test-th-${id}`); if (el) el.value = vals.th; }
+        if (vals.ta != null) { const el = document.getElementById(`test-ta-${id}`); if (el) el.value = vals.ta; }
+        const prefix = id.startsWith('k') ? 'k' : 'g';
+        recalcTestRow(id, prefix);
+      }
+    }
+
+    async function resetTestData() {
+      if (!confirm('Biztosan nullázod a tesztadatokat? Minden bevitt érték törlődik.')) return;
+      await fbDelete('/testEnv').catch(() => {});
+      [...TEST_GROUP_MATCHES, ...TEST_KO_MATCHES].forEach(m => {
+        ['rh','ra','th','ta'].forEach(f => {
+          const el = document.getElementById(`test-${f}-${m.id}`);
+          if (el) el.value = '';
+        });
+        const ptsEl = document.getElementById(`test-pts-${m.id}`);
+        if (ptsEl) { ptsEl.textContent = '–'; ptsEl.className = 'test-pts-badge'; }
+      });
+      const tg = document.getElementById('test-total-g'); if (tg) tg.textContent = '0';
+      const tk = document.getElementById('test-total-k'); if (tk) tk.textContent = '0';
     }
 
     function renderAdminTest() {
@@ -2136,10 +2181,13 @@ details.group-accordion[open] > summary { color: var(--accent); }
       const koRows = TEST_KO_MATCHES.map(m => buildTestMatchRow(m, 'k')).join('');
 
       document.getElementById('tab-admin').innerHTML = `${subNav}
-        <div style="background:var(--surface2);border-radius:var(--radius);padding:12px 16px;margin-bottom:20px;font-size:13px;color:var(--text2);line-height:1.6">
-          ℹ️ <strong style="color:var(--text)">Tesztpanel</strong> — nem ír Firebase-be.<br>
-          <span style="color:var(--accent)">&#x25A0; Kék mező</span> = eredmény (admin) &nbsp;&nbsp;
-          <span style="color:var(--accent2)">&#x25A0; Zöld mező</span> = tipped (felhasználó)
+        <div style="background:var(--surface2);border-radius:var(--radius);padding:12px 16px;margin-bottom:20px;font-size:13px;color:var(--text2);line-height:1.6;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+          <div>
+            ℹ️ <strong style="color:var(--text)">Tesztpanel</strong> — Firebase-be ment, minden admin ugyanazt látja.<br>
+            <span style="color:var(--accent)">&#x25A0; Kék mező</span> = eredmény (admin) &nbsp;&nbsp;
+            <span style="color:var(--accent2)">&#x25A0; Zöld mező</span> = tipped (felhasználó)
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="resetTestData()" style="white-space:nowrap">Nullázás</button>
         </div>
 
         <div class="test-section">
@@ -2162,6 +2210,7 @@ details.group-accordion[open] > summary { color: var(--accent); }
           </div>
         </div>
       `;
+      loadTestData();
     }
   </script>
 </body>
