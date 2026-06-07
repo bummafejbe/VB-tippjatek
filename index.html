@@ -556,6 +556,60 @@ details.group-accordion[open] > summary { color: var(--accent); }
     const auth = firebase.auth();
     const FIREBASE_URL = FIREBASE_CONFIG.databaseURL;
 
+    // === TEAM FLAGS ===
+    const TEAM_FLAGS = {
+      // CONMEBOL
+      'Brazil':'🇧🇷','Argentina':'🇦🇷','Uruguay':'🇺🇾','Colombia':'🇨🇴',
+      'Ecuador':'🇪🇨','Chile':'🇨🇱','Paraguay':'🇵🇾','Venezuela':'🇻🇪',
+      'Bolivia':'🇧🇴','Peru':'🇵🇪',
+      // CONCACAF
+      'Mexico':'🇲🇽','United States':'🇺🇸','Canada':'🇨🇦','Panama':'🇵🇦',
+      'Jamaica':'🇯🇲','Honduras':'🇭🇳','Costa Rica':'🇨🇷','El Salvador':'🇸🇻',
+      'Trinidad and Tobago':'🇹🇹','Haiti':'🇭🇹','Suriname':'🇸🇷',
+      'Curacao':'🇨🇼','Guatemala':'🇬🇹','Cuba':'🇨🇺',
+      // UEFA
+      'France':'🇫🇷','Germany':'🇩🇪','Spain':'🇪🇸','England':'🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+      'Portugal':'🇵🇹','Netherlands':'🇳🇱','Belgium':'🇧🇪','Italy':'🇮🇹',
+      'Croatia':'🇭🇷','Denmark':'🇩🇰','Switzerland':'🇨🇭','Poland':'🇵🇱',
+      'Serbia':'🇷🇸','Turkey':'🇹🇷','Austria':'🇦🇹','Scotland':'🏴󠁧󠁢󠁳󠁣󠁴󠁿',
+      'Hungary':'🇭🇺','Czech Republic':'🇨🇿','Czechia':'🇨🇿','Romania':'🇷🇴',
+      'Ukraine':'🇺🇦','Slovakia':'🇸🇰','Wales':'🏴󠁧󠁢󠁷󠁬󠁳󠁿','Greece':'🇬🇷',
+      'Norway':'🇳🇴','Iceland':'🇮🇸','Sweden':'🇸🇪','Finland':'🇫🇮',
+      'Albania':'🇦🇱','Slovenia':'🇸🇮','Georgia':'🇬🇪',
+      'Bosnia and Herzegovina':'🇧🇦','North Macedonia':'🇲🇰','Kosovo':'🇽🇰',
+      'Montenegro':'🇲🇪','Bulgaria':'🇧🇬','Israel':'🇮🇱','Ireland':'🇮🇪',
+      'Northern Ireland':'🏴󠁧󠁢󠁮󠁩󠁲󠁿','Luxembourg':'🇱🇺','Gibraltar':'🇬🇮',
+      // CAF
+      'Morocco':'🇲🇦','Senegal':'🇸🇳','Egypt':'🇪🇬','Nigeria':'🇳🇬',
+      'Cameroon':'🇨🇲',"Côte d'Ivoire":'🇨🇮','Ivory Coast':'🇨🇮',
+      'Algeria':'🇩🇿','South Africa':'🇿🇦','Tunisia':'🇹🇳','Ghana':'🇬🇭',
+      'Mali':'🇲🇱','DR Congo':'🇨🇩','Democratic Republic of Congo':'🇨🇩',
+      'Congo DR':'🇨🇩','Cape Verde':'🇨🇻','Guinea':'🇬🇳',
+      'Equatorial Guinea':'🇬🇶','Zambia':'🇿🇲','Tanzania':'🇹🇿',
+      'Uganda':'🇺🇬','Mozambique':'🇲🇿','Angola':'🇦🇴','Namibia':'🇳🇦',
+      'Burkina Faso':'🇧🇫','Zimbabwe':'🇿🇼','Rwanda':'🇷🇼',
+      'Comoros':'🇰🇲','Benin':'🇧🇯','Congo':'🇨🇬','Ethiopia':'🇪🇹',
+      'Kenya':'🇰🇪','Liberia':'🇱🇷','Sudan':'🇸🇩','Togo':'🇹🇬',
+      // AFC
+      'Japan':'🇯🇵','Korea Republic':'🇰🇷','South Korea':'🇰🇷',
+      'Iran':'🇮🇷','Australia':'🇦🇺','Saudi Arabia':'🇸🇦','Iraq':'🇮🇶',
+      'Jordan':'🇯🇴','Uzbekistan':'🇺🇿','Qatar':'🇶🇦','China PR':'🇨🇳',
+      'China':'🇨🇳','Indonesia':'🇮🇩','United Arab Emirates':'🇦🇪',
+      'Bahrain':'🇧🇭','Oman':'🇴🇲','Syria':'🇸🇾','Palestine':'🇵🇸',
+      'Kyrgyzstan':'🇰🇬','Thailand':'🇹🇭','Vietnam':'🇻🇳','India':'🇮🇳',
+      'Hong Kong':'🇭🇰','Pakistan':'🇵🇰','Tajikistan':'🇹🇯',
+      // OFC
+      'New Zealand':'🇳🇿','Fiji':'🇫🇯','Papua New Guinea':'🇵🇬',
+      // Hungarian names (test panel)
+      'Brazília':'🇧🇷','Argentína':'🇦🇷','Mexikó':'🇲🇽',
+      'Spanyolország':'🇪🇸','Franciaország':'🇫🇷','Anglia':'🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+      'Portugália':'🇵🇹','Németország':'🇩🇪','Hollandia':'🇳🇱','Olaszország':'🇮🇹',
+    };
+    function getFlag(name) {
+      if (!name || name === 'TBD') return '';
+      return TEAM_FLAGS[name] ? TEAM_FLAGS[name] + ' ' : '';
+    }
+
     // === STATE ===
     let currentUser = null;
     let currentUserData = null;
@@ -941,8 +995,8 @@ details.group-accordion[open] > summary { color: var(--accent); }
         const hasResult = m.resultHome != null && m.resultAway != null;
         const homeScore = hasResult ? m.resultHome : '';
         const awayScore = hasResult ? m.resultAway : '';
-        const home = (m.home && m.home !== 'TBD') ? m.home : `<span class="bk-tbd">TBD</span>`;
-        const away = (m.away && m.away !== 'TBD') ? m.away : `<span class="bk-tbd">TBD</span>`;
+        const home = (m.home && m.home !== 'TBD') ? `${getFlag(m.home)}${m.home}` : `<span class="bk-tbd">TBD</span>`;
+        const away = (m.away && m.away !== 'TBD') ? `${getFlag(m.away)}${m.away}` : `<span class="bk-tbd">TBD</span>`;
         const cls = isFinal ? 'bk-card bk-final' : 'bk-card';
         const lbl = label ? `<div class="bk-extra-label" style="left:${x}px;top:${y-14}px">${label}</div>` : '';
         const live = isMatchLive(m);
@@ -1045,9 +1099,9 @@ details.group-accordion[open] > summary { color: var(--accent); }
         <div class="bm-round">${roundLabel}</div>
         <div class="bm-date">${formatDatetimeSmart(m.datetime)} <span style="color:var(--text2);font-size:11px">(${formatDatetime(m.datetime)})</span></div>
         <div class="bm-teams">
-          <div class="bm-tname">${m.home || 'TBD'}</div>
+          <div class="bm-tname">${getFlag(m.home)}${m.home || 'TBD'}</div>
           <div class="bm-tscore">${resultStr}</div>
-          <div class="bm-tname away">${m.away || 'TBD'}</div>
+          <div class="bm-tname away">${getFlag(m.away)}${m.away || 'TBD'}</div>
         </div>
         ${tipHtml}${othersHtml}`;
       document.getElementById('bracket-modal').hidden = false;
@@ -1113,7 +1167,7 @@ details.group-accordion[open] > summary { color: var(--accent); }
       const rowsHtml = rows.map(([name, r], i) => `
         <tr>
           <td style="color:var(--text2);text-align:center">${i+1}.</td>
-          <td style="font-weight:600">${name}</td>
+          <td style="font-weight:600">${getFlag(name)}${name}</td>
           <td style="text-align:center">${r.P}</td>
           <td style="text-align:center">${r.W}</td>
           <td style="text-align:center">${r.D}</td>
@@ -1154,7 +1208,7 @@ details.group-accordion[open] > summary { color: var(--accent); }
       const isTipped = !!myTips[next.id];
       el.innerHTML = `<div class="next-match-widget">
         <div class="nmw-label">Következő meccs</div>
-        <div class="nmw-teams">${next.home} — ${next.away}</div>
+        <div class="nmw-teams">${getFlag(next.home)}${next.home} — ${getFlag(next.away)}${next.away}</div>
         <div class="nmw-row">
           <div class="nmw-countdown">${countdown}</div>
           ${isTipped
@@ -1347,9 +1401,9 @@ details.group-accordion[open] > summary { color: var(--accent); }
             <span>${overrideBadge}${liveBadge}</span>
           </div>
           <div class="match-teams">
-            <div class="team-name">${match.home || 'TBD'}</div>
+            <div class="team-name">${getFlag(match.home)}${match.home || 'TBD'}</div>
             <div class="match-result">${resultStr}</div>
-            <div class="team-name away">${match.away || 'TBD'}</div>
+            <div class="team-name away">${getFlag(match.away)}${match.away || 'TBD'}</div>
           </div>
           ${tipHtml}
           ${othersHtml}
@@ -1869,13 +1923,13 @@ details.group-accordion[open] > summary { color: var(--accent); }
               <span>${overrideBadge}</span>
             </div>
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-              <span style="flex:1;font-weight:600">${m.home || 'TBD'}</span>
+              <span style="flex:1;font-weight:600">${getFlag(m.home)}${m.home || 'TBD'}</span>
               <div class="result-inputs">
                 <input class="tip-input" type="number" min="0" id="res-h-${id}" value="${rH}" placeholder="&ndash;">
                 <span class="tip-separator">&ndash;</span>
                 <input class="tip-input" type="number" min="0" id="res-a-${id}" value="${rA}" placeholder="&ndash;">
               </div>
-              <span style="flex:1;font-weight:600;text-align:right">${m.away || 'TBD'}</span>
+              <span style="flex:1;font-weight:600;text-align:right">${getFlag(m.away)}${m.away || 'TBD'}</span>
               <button class="btn btn-primary btn-sm" onclick="saveResultOverride('${id}')">Mentés</button>
               ${m.resultOverride ? `<button class="btn btn-ghost btn-sm" onclick="clearResultOverride('${id}')">Auto</button>` : ''}
             </div>
