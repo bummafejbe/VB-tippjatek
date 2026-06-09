@@ -1451,7 +1451,6 @@ details.group-accordion[open] > summary { color: var(--accent); }
       correctDiff: 4,      // helyes kimenetel + helyes gólkülönbség
       oneTeamGoals: 3,     // helyes kimenetel + valamelyik csapat góljai egyeznek
       correctWinner: 2,    // csak helyes kimenetel
-      groupQualifier: 2,
       topScorer: 10,
       winner: 15
     };
@@ -1472,22 +1471,9 @@ details.group-accordion[open] > summary { color: var(--accent); }
       return POINTS.correctWinner;
     }
 
-    function getGroupQualifiers(group) {
-      return (appConfig.groupQualifiers && appConfig.groupQualifiers[group]) || [];
-    }
-
     function calculatePreTournamentPoints(pretip) {
       if (!pretip) return 0;
       let pts = 0;
-      if (pretip.groupTips) {
-        for (const [group, tippedTeams] of Object.entries(pretip.groupTips)) {
-          if (!Array.isArray(tippedTeams)) continue;
-          const actualQualifiers = getGroupQualifiers(group);
-          for (const team of tippedTeams) {
-            if (actualQualifiers.includes(team)) pts += POINTS.groupQualifier;
-          }
-        }
-      }
       if (pretip.topScorer && appConfig.topScorer) {
         if (pretip.topScorer.trim().toLowerCase() === appConfig.topScorer.trim().toLowerCase()) {
           pts += POINTS.topScorer;
@@ -1553,25 +1539,6 @@ details.group-accordion[open] > summary { color: var(--accent); }
         ? `Határidő: ${formatDatetime(appConfig.pretournamentDeadline)}`
         : '';
 
-      let groupHtml = '';
-      for (const g of GROUPS) {
-        const teams = getTeamsForGroup(g);
-        if (teams.length === 0) continue;
-        const saved = (myPretip.groupTips && myPretip.groupTips[g]) || [];
-        const opts = teams.map(t =>
-          `<option value="${t}">${t}</option>`
-        ).join('');
-        groupHtml += `
-          <div class="form-group">
-            <label>${g} csoport &mdash; 1. továbbjutó</label>
-            <select id="pre-g${g}-1" ${!open ? 'disabled' : ''}><option value="">Válassz...</option>${opts}</select>
-          </div>
-          <div class="form-group">
-            <label>${g} csoport &mdash; 2. továbbjutó</label>
-            <select id="pre-g${g}-2" ${!open ? 'disabled' : ''}><option value="">Válassz...</option>${opts}</select>
-          </div>`;
-      }
-
       const teamOpts = allTeams.map(t =>
         `<option value="${t}">${t}</option>`
       ).join('');
@@ -1580,10 +1547,6 @@ details.group-accordion[open] > summary { color: var(--accent); }
         <div style="padding-bottom:80px">
           <div class="card" style="margin-bottom:16px">
             <div style="font-size:13px;color:var(--text2)">${open ? '&#x23F3; ' + deadlineStr : '&#x1F512; A tippelési határidő lejárt. A tippjeid megtekinthetők.'}</div>
-          </div>
-          <div class="admin-section">
-            <h3>Csoporttovábbjutók</h3>
-            ${groupHtml}
           </div>
           <div class="admin-section">
             <h3>Különleges tippek</h3>
@@ -1603,32 +1566,16 @@ details.group-accordion[open] > summary { color: var(--accent); }
           <div id="pretip-status" style="margin-top:10px;color:var(--accent2);font-size:13px"></div>
         </div>`;
 
-      // Restore saved values after innerHTML set
-      for (const g of GROUPS) {
-        const saved = (myPretip.groupTips && myPretip.groupTips[g]) || [];
-        const sel1 = document.getElementById(`pre-g${g}-1`);
-        const sel2 = document.getElementById(`pre-g${g}-2`);
-        if (sel1 && saved[0]) sel1.value = saved[0];
-        if (sel2 && saved[1]) sel2.value = saved[1];
-      }
       const winnerSel = document.getElementById('pre-winner');
       if (winnerSel && myPretip.winner) winnerSel.value = myPretip.winner;
     }
 
     async function savePreTournamentTip() {
       if (!isPreTournamentOpen()) return;
-      const groupTips = {};
-      for (const g of GROUPS) {
-        const sel1 = document.getElementById(`pre-g${g}-1`);
-        const sel2 = document.getElementById(`pre-g${g}-2`);
-        if (!sel1 || !sel2) continue;
-        const v1 = sel1.value, v2 = sel2.value;
-        if (v1 || v2) groupTips[g] = [v1, v2].filter(Boolean);
-      }
       const topScorer = document.getElementById('pre-topscorer').value.trim();
       const winner = document.getElementById('pre-winner').value;
       const uid = currentUser.uid;
-      const data = { groupTips, topScorer, winner, submittedAt: new Date().toISOString() };
+      const data = { topScorer, winner, submittedAt: new Date().toISOString() };
       await fbPut(`pretournament/${uid}`, data);
       if (!allPretournament) allPretournament = {};
       allPretournament[uid] = data;
@@ -1994,19 +1941,6 @@ details.group-accordion[open] > summary { color: var(--accent); }
         <button class="btn btn-ghost btn-sm" onclick="renderAdminTest()">Teszt</button>
       </div>`;
 
-      const groupQualHtml = GROUPS.map(g => {
-        const saved = (appConfig.groupQualifiers && appConfig.groupQualifiers[g]) || [];
-        const teams = getTeamsForGroup(g);
-        const opts = teams.map(t => `<option value="${t}">${t}</option>`).join('');
-        return `<div class="form-group">
-          <label>${g} csoport &mdash; továbbjutók</label>
-          <div style="display:flex;gap:8px">
-            <select id="gq-${g}-1" style="flex:1"><option value="">--</option>${opts}</select>
-            <select id="gq-${g}-2" style="flex:1"><option value="">--</option>${opts}</select>
-          </div>
-        </div>`;
-      }).join('');
-
       const allTeamOpts = getAllTeams().map(t =>
         `<option value="${t}" ${appConfig.tournamentWinner === t ? 'selected' : ''}>${t}</option>`
       ).join('');
@@ -2055,22 +1989,8 @@ details.group-accordion[open] > summary { color: var(--accent); }
           <button class="btn btn-primary btn-sm" onclick="saveTournamentResults()">Mentés</button>
           <div id="admin-tournament-status" style="margin-top:8px;font-size:12px;color:var(--accent2)"></div>
         </div>
-        <div class="admin-section">
-          <h3>Csoporttovábbjutók (pontozáshoz)</h3>
-          <p style="font-size:12px;color:var(--text2);margin-bottom:10px">A csoportkör végén töltsd ki csoportonként a 2 továbbjutó csapatot.</p>
-          ${groupQualHtml}
-          <button class="btn btn-primary btn-sm" onclick="saveGroupQualifiers()">Csoporttovábbjutók mentése</button>
-          <div id="gq-status" style="margin-top:8px;font-size:12px;color:var(--accent2)"></div>
-        </div>`;
+`;
 
-      // Restore select values after innerHTML
-      for (const g of GROUPS) {
-        const saved = (appConfig.groupQualifiers && appConfig.groupQualifiers[g]) || [];
-        const s1 = document.getElementById(`gq-${g}-1`);
-        const s2 = document.getElementById(`gq-${g}-2`);
-        if (s1 && saved[0]) s1.value = saved[0];
-        if (s2 && saved[1]) s2.value = saved[1];
-      }
     }
 
     async function saveApiSettings() {
@@ -2097,17 +2017,6 @@ details.group-accordion[open] > summary { color: var(--accent); }
       document.getElementById('admin-tournament-status').textContent = '&#x2713; Mentve';
     }
 
-    async function saveGroupQualifiers() {
-      const groupQualifiers = {};
-      for (const g of GROUPS) {
-        const v1 = document.getElementById(`gq-${g}-1`)?.value;
-        const v2 = document.getElementById(`gq-${g}-2`)?.value;
-        if (v1 || v2) groupQualifiers[g] = [v1, v2].filter(Boolean);
-      }
-      await fbPatch('config', { groupQualifiers });
-      appConfig.groupQualifiers = groupQualifiers;
-      document.getElementById('gq-status').textContent = '&#x2713; Csoporttovábbjutók mentve';
-    }
 
     // === ADMIN TEST PANEL ===
     const TEST_GROUP_MATCHES = [
