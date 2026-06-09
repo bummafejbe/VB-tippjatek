@@ -566,17 +566,17 @@ details.group-accordion[open] > summary { color: var(--accent); }
       'Mexico':'🇲🇽','United States':'🇺🇸','Canada':'🇨🇦','Panama':'🇵🇦',
       'Jamaica':'🇯🇲','Honduras':'🇭🇳','Costa Rica':'🇨🇷','El Salvador':'🇸🇻',
       'Trinidad and Tobago':'🇹🇹','Haiti':'🇭🇹','Suriname':'🇸🇷',
-      'Curacao':'🇨🇼','Guatemala':'🇬🇹','Cuba':'🇨🇺',
+      'Curaçao':'🇨🇼','Curacao':'🇨🇼','Guatemala':'🇬🇹','Cuba':'🇨🇺',
       // UEFA
       'France':'🇫🇷','Germany':'🇩🇪','Spain':'🇪🇸','England':'🏴󠁧󠁢󠁥󠁮󠁧󠁿',
       'Portugal':'🇵🇹','Netherlands':'🇳🇱','Belgium':'🇧🇪','Italy':'🇮🇹',
       'Croatia':'🇭🇷','Denmark':'🇩🇰','Switzerland':'🇨🇭','Poland':'🇵🇱',
-      'Serbia':'🇷🇸','Turkey':'🇹🇷','Austria':'🇦🇹','Scotland':'🏴󠁧󠁢󠁳󠁣󠁴󠁿',
+      'Serbia':'🇷🇸','Turkey':'🇹🇷','Türkiye':'🇹🇷','Austria':'🇦🇹','Scotland':'🏴󠁧󠁢󠁳󠁣󠁴󠁿',
       'Hungary':'🇭🇺','Czech Republic':'🇨🇿','Czechia':'🇨🇿','Romania':'🇷🇴',
       'Ukraine':'🇺🇦','Slovakia':'🇸🇰','Wales':'🏴󠁧󠁢󠁷󠁬󠁳󠁿','Greece':'🇬🇷',
       'Norway':'🇳🇴','Iceland':'🇮🇸','Sweden':'🇸🇪','Finland':'🇫🇮',
       'Albania':'🇦🇱','Slovenia':'🇸🇮','Georgia':'🇬🇪',
-      'Bosnia and Herzegovina':'🇧🇦','North Macedonia':'🇲🇰','Kosovo':'🇽🇰',
+      'Bosnia and Herzegovina':'🇧🇦','Bosnia & Herzegovina':'🇧🇦','Bosnia-Herzegovina':'🇧🇦','North Macedonia':'🇲🇰','Kosovo':'🇽🇰',
       'Montenegro':'🇲🇪','Bulgaria':'🇧🇬','Israel':'🇮🇱','Ireland':'🇮🇪',
       'Northern Ireland':'🏴󠁧󠁢󠁮󠁩󠁲󠁿','Luxembourg':'🇱🇺','Gibraltar':'🇬🇮',
       // CAF
@@ -592,7 +592,7 @@ details.group-accordion[open] > summary { color: var(--accent); }
       'Kenya':'🇰🇪','Liberia':'🇱🇷','Sudan':'🇸🇩','Togo':'🇹🇬',
       // AFC
       'Japan':'🇯🇵','Korea Republic':'🇰🇷','South Korea':'🇰🇷',
-      'Iran':'🇮🇷','Australia':'🇦🇺','Saudi Arabia':'🇸🇦','Iraq':'🇮🇶',
+      'Iran':'🇮🇷','IR Iran':'🇮🇷','Australia':'🇦🇺','Saudi Arabia':'🇸🇦','Iraq':'🇮🇶',
       'Jordan':'🇯🇴','Uzbekistan':'🇺🇿','Qatar':'🇶🇦','China PR':'🇨🇳',
       'China':'🇨🇳','Indonesia':'🇮🇩','United Arab Emirates':'🇦🇪',
       'Bahrain':'🇧🇭','Oman':'🇴🇲','Syria':'🇸🇾','Palestine':'🇵🇸',
@@ -605,9 +605,15 @@ details.group-accordion[open] > summary { color: var(--accent); }
       'Spanyolország':'🇪🇸','Franciaország':'🇫🇷','Anglia':'🏴󠁧󠁢󠁥󠁮󠁧󠁿',
       'Portugália':'🇵🇹','Németország':'🇩🇪','Hollandia':'🇳🇱','Olaszország':'🇮🇹',
     };
+    const _flagMissLogged = new Set();
     function getFlag(name) {
       if (!name || name === 'TBD') return '';
-      return TEAM_FLAGS[name] ? TEAM_FLAGS[name] + ' ' : '';
+      const flag = TEAM_FLAGS[name];
+      if (!flag && !_flagMissLogged.has(name)) {
+        _flagMissLogged.add(name);
+        console.warn('[zaszlo hianyzik]', JSON.stringify(name));
+      }
+      return flag ? flag + ' ' : '';
     }
 
     // === STATE ===
