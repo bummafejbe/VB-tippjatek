@@ -1899,7 +1899,10 @@ details.group-accordion[open] > summary { color: var(--accent); }
 
       el.innerHTML = subNav + `
         <div class="admin-section">
-          <h3>Meccseredmények felülbírálása</h3>
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+            <h3 style="margin:0">Meccseredmények felülbírálása</h3>
+            <button class="btn btn-sm" style="background:var(--danger);color:#fff" onclick="clearAllResults()">&#x1F5D1; Minden eredmény törlése</button>
+          </div>
           <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Az "Auto" gombbal visszaállítható az API automatikus szinkronizáció.</p>
           ${filterBar}
           ${rows || '<div style="color:var(--text2);font-size:13px;padding:8px 0">Nincs meccs ebben a szűrőben.</div>'}
@@ -1920,6 +1923,21 @@ details.group-accordion[open] > summary { color: var(--accent); }
       await fbPatch(`matches/${matchId}`, { resultOverride: false });
       allMatches[matchId].resultOverride = false;
       renderAdminResults();
+    }
+
+    async function clearAllResults() {
+      if (!confirm('Biztosan törlöd az összes meccseredményt? Ez nem vonható vissza.')) return;
+      const ids = Object.keys(allMatches);
+      await Promise.all(ids.map(id =>
+        fbPatch(`matches/${id}`, { resultHome: null, resultAway: null, resultOverride: null })
+      ));
+      for (const id of ids) {
+        delete allMatches[id].resultHome;
+        delete allMatches[id].resultAway;
+        delete allMatches[id].resultOverride;
+      }
+      renderAdminResults();
+      renderMatches();
     }
 
     // === INFO MODAL ===
