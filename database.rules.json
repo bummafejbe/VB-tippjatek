@@ -11,7 +11,8 @@
     "users": {
       ".read": "auth != null",
       "$uid": {
-        ".write": "root.child('admins').child(auth.uid).val() === true || auth.uid === $uid"
+        ".write": "root.child('admins').child(auth.uid).val() === true || auth.uid === $uid",
+        ".validate": "root.child('admins').child(auth.uid).val() === true || (!data.exists() && newData.child('status').val() === 'pending') || (data.exists() && newData.child('status').val() === data.child('status').val())"
       }
     },
     "matches": {
@@ -21,13 +22,25 @@
     "tips": {
       ".read": "auth != null",
       "$uid": {
-        ".write": "auth.uid === $uid"
+        "$matchId": {
+          ".write": "auth.uid === $uid && !root.child('matches').child($matchId).child('resultHome').exists()",
+          ".validate": "newData.hasChildren(['home', 'away'])",
+          "home": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 99" },
+          "away": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 99" },
+          "submittedAt": { ".validate": "newData.isString()" },
+          "$other": { ".validate": false }
+        }
       }
     },
     "pretournament": {
       ".read": "auth != null",
       "$uid": {
-        ".write": "auth.uid === $uid"
+        ".write": "auth.uid === $uid && !root.child('config').child('tournamentWinner').exists()",
+        ".validate": "newData.hasChildren()",
+        "topScorer": { ".validate": "newData.isString() && newData.val().length <= 100" },
+        "winner": { ".validate": "newData.isString() && newData.val().length <= 100" },
+        "submittedAt": { ".validate": "newData.isString()" },
+        "$other": { ".validate": false }
       }
     },
     "testEnv": {
