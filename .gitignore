@@ -1,3 +1,14 @@
 .firebaserc
 node_modules/
 .firebase/
+
+# Local-only docs / project notes (not deployed)
+CLAUDE.md
+docs/
+
+# Local working artifacts (screenshots, previews, tooling)
+*.png
+*-debug.log
+.playwright-mcp/
+.superpowers/
+auth-handoff.md
