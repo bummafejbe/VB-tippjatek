@@ -751,6 +751,8 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
     let allUsers = {};
     let appConfig = {};
     let allPretournament = {};
+    let liveOverlay = {};            // matchId → { status, home, away, scorersHome, scorersAway, raw } (ingyenes élő forrás)
+    let _liveOverlayTimer = null;
     let matchFilter = 'all';
     const _expandedUsers = new Set();
     let _adminResultFilter = 'no_result';
@@ -890,6 +892,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       clearInterval(apiPollTimer);
       clearInterval(_nextMatchTimer);
       clearInterval(_liveDataTimer);
+      clearInterval(_liveOverlayTimer);
       currentUser = null; currentUserData = null; isAdminUser = false;
       allMatches = {}; allTips = {}; allUsers = {};
       await auth.signOut();
@@ -953,6 +956,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       await seedMatchesIfNeeded();
       showTab('tab-matches');
       startLiveDataPolling();
+      startLiveOverlayPolling();
     }
 
     function buildNav() {
@@ -1330,9 +1334,73 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       </div>`;
     }
 
+    // === ÉLŐ OVERLAY (ingyenes, kliensoldali — worldcup26.ir, CORS-engedélyezett) ===
+    // Csak megjelenítésre szolgál; a pontozást/tabellát SOHA nem érinti (azok a /matches
+    // végeredményéből számolnak). A flaky GitHub-cron helyett valós idejű, ingyenes élő forrás.
+    const LIVE_API = 'https://worldcup26.ir/get/games';
+    function _normTeam(n) {
+      if (!n) return '';
+      const s = n.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+      const aliases = {
+        'turkiye': 'turkey', 'cote d ivoire': 'ivory coast',
+        'korea republic': 'south korea', 'ir iran': 'iran', 'czech republic': 'czechia',
+        'usa': 'united states', 'congo dr': 'dr congo',
+        'cape verde islands': 'cape verde', 'bosnia and herzegovina': 'bosnia herzegovina',
+      };
+      return aliases[s] || s;
+    }
+    const _pairKey = (home, away) => `${_normTeam(home)}|${_normTeam(away)}`;
+    function _parseScorers(raw) {
+      if (!raw || raw === 'null') return [];
+      return raw.replace(/^\{|\}$/g, '').split('","').map(s => s.replace(/^"|"$/g, '').trim()).filter(Boolean);
+    }
+    async function refreshLiveOverlay() {
+      try {
+        const res = await fetch(LIVE_API, { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const games = Array.isArray(data) ? data : (data.games || data.data || []);
+        const byPair = {};
+        for (const g of games) byPair[_pairKey(g.home_team_name_en, g.away_team_name_en)] = g;
+        const overlay = {};
+        for (const [id, m] of Object.entries(allMatches)) {
+          const g = byPair[_pairKey(m.home, m.away)];
+          if (!g) continue;
+          const te = (g.time_elapsed || '').toLowerCase();
+          const finished = (g.finished || '').toUpperCase() === 'TRUE' || te === 'finished';
+          const notStarted = te === 'notstarted' || te === '';
+          overlay[id] = {
+            status: finished ? 'FINISHED' : (notStarted ? 'SCHEDULED' : 'LIVE'),
+            home: g.home_score != null && g.home_score !== '' ? parseInt(g.home_score) : null,
+            away: g.away_score != null && g.away_score !== '' ? parseInt(g.away_score) : null,
+            scorersHome: _parseScorers(g.home_scorers),
+            scorersAway: _parseScorers(g.away_scorers),
+            raw: te,
+          };
+        }
+        liveOverlay = overlay;
+        renderNextMatchWidget();
+        const matchesTab = document.getElementById('tab-matches');
+        const modalOpen = !document.getElementById('bracket-modal').hidden;
+        if (matchesTab && !matchesTab.hidden && !modalOpen) {
+          const og = [...document.querySelectorAll('#tab-matches details.group-accordion[open]')].map(d => d.dataset.group);
+          renderMatches();
+          og.forEach(g => { const d = document.querySelector(`#tab-matches details.group-accordion[data-group="${g}"]`); if (d) d.open = true; });
+        }
+      } catch {}
+    }
+    function startLiveOverlayPolling() {
+      if (_liveOverlayTimer) clearInterval(_liveOverlayTimer);
+      refreshLiveOverlay();
+      _liveOverlayTimer = setInterval(refreshLiveOverlay, 30000);
+    }
+
     // === NEXT MATCH + LIVE WIDGETS ===
-    // Élő állás becsült perce (a football-data ingyenes tier nem ad pontos percet).
+    // Élő állás becsült perce (az ingyenes források nem mindig adnak pontos percet).
     function liveMinuteStr(match) {
+      const ov = match.id ? liveOverlay[match.id] : null;
+      if (ov && ov.raw && /^\d/.test(ov.raw)) return ov.raw.replace(/[^0-9+]/g, '') + "'";
       if (match.live && match.live.minute != null) return `${match.live.minute}'`;
       const mins = Math.floor((new Date() - new Date(match.datetime)) / 60000);
       if (mins < 0) return '';
@@ -1342,8 +1410,10 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       if (adj >= 90) return "90+'";
       return `~${adj}'`;
     }
-    // Élő (vagy a jelenlegi) állás — final eredmény hiányában az élő mezőből.
+    // Élő (vagy a jelenlegi) állás — elsődlegesen az élő overlay, majd a sync `live`, végül a végeredmény.
     function liveScorePair(match) {
+      const ov = match.id ? liveOverlay[match.id] : null;
+      if (ov && ov.home != null && ov.away != null) return [ov.home, ov.away];
       const h = (match.live && match.live.home != null) ? match.live.home
               : (match.resultHome != null ? match.resultHome : 0);
       const a = (match.live && match.live.away != null) ? match.live.away
@@ -1464,7 +1534,10 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
     function isMatchLive(match) {
       // Végeredmény megvan → már nem él
       if (match.resultHome != null && match.resultAway != null) return false;
-      // A szerver-szinkron által jelölt élő státusz a legmegbízhatóbb
+      // Az ingyenes élő overlay (worldcup26.ir) a legmegbízhatóbb, ha ismeri a meccset
+      const ov = match.id ? liveOverlay[match.id] : null;
+      if (ov) return ov.status === 'LIVE';
+      // A szerver-szinkron által jelölt élő státusz
       if (match.live && (match.live.status === 'IN_PLAY' || match.live.status === 'PAUSED')) return true;
       // Fallback: időablak a kezdéstől (félidő + ráadás miatt 125 perc)
       const now = new Date();
@@ -1734,18 +1807,34 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       if (!m) return;
       const live = isMatchLive(m);
       const hasResult = m.resultHome != null && m.resultAway != null;
+      const ov = liveOverlay[matchId];
+      const mWithId = { id: matchId, ...m };
       let scoreH = null, scoreA = null;
       if (hasResult) { scoreH = m.resultHome; scoreA = m.resultAway; }
-      else if (live) { [scoreH, scoreA] = liveScorePair(m); }
+      else if (live || (ov && ov.home != null)) { [scoreH, scoreA] = liveScorePair(mWithId); }
       const scoreStr = (scoreH != null && scoreA != null) ? `${scoreH}&ndash;${scoreA}` : '&ndash;';
       const statusLine = hasResult
         ? 'Vége'
-        : (live ? `<span style="color:var(--danger);font-weight:700">&#x25CF; Élő &middot; ${liveMinuteStr(m)}</span>` : formatDatetimeSmart(m.datetime));
+        : (live ? `<span style="color:var(--danger);font-weight:700">&#x25CF; Élő &middot; ${liveMinuteStr(mWithId)}</span>` : formatDatetimeSmart(m.datetime));
       const roundLabel = GROUP_LABELS[m.group] || m.group || '';
 
       const st = matchTipStats(matchId, scoreH, scoreA);
       const liveNote = (live && !hasResult)
         ? `<div class="ms-live-note">&#x25CF; Élő állás szerinti ideiglenes pontok</div>` : '';
+
+      // Gólszerzők (ingyenes élő forrásból, ha elérhető)
+      let scorersHtml = '';
+      if (ov && (ov.scorersHome.length || ov.scorersAway.length)) {
+        const list = [
+          ...ov.scorersHome.map(s => `${getFlag(m.home)}${s}`),
+          ...ov.scorersAway.map(s => `${getFlag(m.away)}${s}`),
+        ];
+        scorersHtml = `<div class="others-tips-title" style="margin-bottom:6px">Gólszerzők</div>
+          <div style="font-size:13px;color:var(--text);margin-bottom:14px;display:flex;flex-direction:column;gap:3px">
+            ${list.map(x => `<div>&#x26BD; ${x}</div>`).join('')}
+          </div>`;
+      }
+
       const statGrid = `<div class="ms-stats-grid">
         <div class="ms-stat"><div class="ms-stat-val">${st.count}</div><div class="ms-stat-key">Tippelő</div></div>
         <div class="ms-stat"><div class="ms-stat-val">${st.exact}</div><div class="ms-stat-key">Telitalálat</div></div>
@@ -1768,6 +1857,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
           <div class="bm-tname away">${getFlag(m.away)}${m.away || 'TBD'}</div>
         </div>
         ${liveNote}
+        ${scorersHtml}
         ${statGrid}
         <div class="others-tips-title" style="margin-bottom:6px">Tippek (${st.count})</div>
         ${rowsHtml}`;
