@@ -1433,6 +1433,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         { key: 'open', label: 'Nyitott' },
         { key: 'played', label: 'Lejátszott' },
         { key: 'untipped', label: 'Nem tippeltem' },
+        { key: 'upcoming', label: 'Közelgő meccsek' },
       ];
       const filterHtml = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
         ${FILTER_BTNS.map(f => `<button class="btn btn-sm ${matchFilter===f.key?'btn-primary':'btn-ghost'}" onclick="setMatchFilter('${f.key}')">${f.label}</button>`).join('')}
@@ -1460,9 +1461,27 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         return;
       }
 
-      const groupStageHtml = GROUP_STAGES.map((g, i) => renderAccordion(g, i < 2)).filter(Boolean).join('');
-
       let html = '<div id="next-match-widget"></div>' + renderScoringStrip() + filterHtml;
+
+      // "Következők": időrendben az 5 következő, még el nem indult meccs — tipp leadható.
+      if (matchFilter === 'upcoming') {
+        const now = new Date();
+        const upcoming = Object.entries(allMatches)
+          .map(([id, m]) => ({ id, ...m }))
+          .filter(m => new Date(m.datetime) > now)
+          .sort((a, b) => new Date(a.datetime) - new Date(b.datetime))
+          .slice(0, 5);
+        if (upcoming.length === 0) {
+          html += `<div class="card" style="text-align:center;padding:24px;color:var(--text2)">Nincs több hátralévő meccs.</div>`;
+        } else {
+          html += `<div style="display:flex;flex-direction:column;gap:10px">${upcoming.map(m => renderMatchCard(m, myTips[m.id] || null)).join('')}</div>`;
+        }
+        el.innerHTML = html;
+        startNextMatchWidget();
+        return;
+      }
+
+      const groupStageHtml = GROUP_STAGES.map((g, i) => renderAccordion(g, i < 2)).filter(Boolean).join('');
       if (groupStageHtml) html += `<div class="groups-grid">${groupStageHtml}</div>`;
       html += renderKnockoutBracket();
       el.innerHTML = html;
@@ -1624,7 +1643,13 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
     // === PRE-TOURNAMENT ===
     const GROUPS = ['A','B','C','D','E','F','G','H','I','J','K','L'];
 
+    // Az előzetes tippek (gólkirály + végső győztes) VÉGLEGESEN LE VANNAK ZÁRVA.
+    // A korábban bevitt tippek megmaradnak és a VB végén kerülnek kiértékelésre.
+    // Újranyitáshoz állítsd false-ra (a határidő-logika ekkor ismét érvénybe lép).
+    const PRETOURNAMENT_LOCKED = true;
+
     function isPreTournamentOpen() {
+      if (PRETOURNAMENT_LOCKED) return false;
       if (!appConfig.pretournamentDeadline) return true;
       return new Date() < new Date(appConfig.pretournamentDeadline);
     }
@@ -1657,6 +1682,35 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       const deadlineStr = appConfig.pretournamentDeadline
         ? `Határidő: ${formatDatetime(appConfig.pretournamentDeadline)}`
         : '';
+
+      if (!open) {
+        // VÉGLEGESEN LEZÁRVA — a bevitt tippek megjelennek, de nem módosíthatók.
+        const roVal = (inner) => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:15px;font-weight:700;color:var(--text)">${inner}</div>`;
+        const tsVal = myPretip.topScorer
+          ? myPretip.topScorer
+          : '<span style="color:var(--text2);font-weight:400">— nincs megadva —</span>';
+        const wVal = myPretip.winner
+          ? `${getFlag(myPretip.winner)}${myPretip.winner}`
+          : '<span style="color:var(--text2);font-weight:400">— nincs megadva —</span>';
+        el.innerHTML = `
+          <div style="padding-bottom:80px">
+            <div class="card" style="margin-bottom:16px">
+              <div style="font-size:13px;color:var(--text2)">&#x1F512; Az előzetes tippek (gólkirály, végső győztes) le vannak zárva, már nem módosíthatók. A bevitt tipped a VB végén kerül kiértékelésre.</div>
+            </div>
+            <div class="admin-section">
+              <h3>Különleges tippek</h3>
+              <div class="form-group">
+                <label>Gólkirály</label>
+                ${roVal(tsVal)}
+              </div>
+              <div class="form-group">
+                <label>Végső győztes csapat</label>
+                ${roVal(wVal)}
+              </div>
+            </div>
+          </div>`;
+        return;
+      }
 
       const teamOpts = allTeams.map(t =>
         `<option value="${t}">${t}</option>`
