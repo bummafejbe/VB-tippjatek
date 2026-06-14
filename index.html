@@ -504,7 +504,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
 .nmw-jump.untipped:hover { border-color: var(--danger); color: var(--danger); }
 
 /* Match stats modal block */
-.ms-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 14px; }
+.ms-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 4px 0 14px; }
 .ms-stat { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 .ms-stat-val { font-family: var(--font-display); font-size: 18px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
 .ms-stat-key { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: .05em; }
@@ -1749,8 +1749,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       const statGrid = `<div class="ms-stats-grid">
         <div class="ms-stat"><div class="ms-stat-val">${st.count}</div><div class="ms-stat-key">Tippelő</div></div>
         <div class="ms-stat"><div class="ms-stat-val">${st.exact}</div><div class="ms-stat-key">Telitalálat</div></div>
-        <div class="ms-stat"><div class="ms-stat-val">${st.correct}</div><div class="ms-stat-key">Jó kimenetel</div></div>
-        <div class="ms-stat"><div class="ms-stat-val">${st.avgH.toFixed(1)}&ndash;${st.avgA.toFixed(1)}</div><div class="ms-stat-key">Átlagtipp</div></div>
+        <div class="ms-stat"><div class="ms-stat-val">${st.correct}</div><div class="ms-stat-key">Jó tippek</div></div>
       </div>`;
       const rowsHtml = st.rows.length
         ? st.rows.map(r => {
