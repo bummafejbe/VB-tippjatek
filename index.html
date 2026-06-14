@@ -472,6 +472,44 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
 .info-panel h3 { font-family: var(--font-display); letter-spacing: .1em; font-size: 15px; }
 .info-tier-note { background: var(--surface2); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 8px 12px; margin: 10px 0; font-size: 13px; }
 
+/* ===== LIVE + STATS 2026-06 ===== */
+/* Played (finished) match cards: distinct green border */
+.match-card.match-played { border-color: #2f6f57; }
+.match-card.match-played .match-result { background: #11281d; color: var(--accent2); }
+/* Clickable locked cards open the stats modal */
+.match-card.match-clickable { cursor: pointer; }
+.match-card.match-clickable:hover { border-color: var(--accent); }
+/* Flash highlight when jumping to a match */
+@keyframes match-flash { 0%,100% { box-shadow: 0 0 0 0 rgba(56,189,248,0); } 30% { box-shadow: 0 0 0 3px rgba(56,189,248,.85); } }
+.match-card.match-flash { animation: match-flash 1.5s ease; border-color: var(--accent); }
+/* Persistent "saved tip" indicator */
+.tip-saved-persist { font-size: 12px; font-weight: 700; color: var(--accent2); display: inline-flex; align-items: center; gap: 3px; }
+
+/* Live box (top of Meccsek) */
+.live-box { background: var(--surface); border: 1px solid #ef444466; border-left: 3px solid var(--danger); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 10px; cursor: pointer; transition: border-color .15s; }
+.live-box:hover { border-color: var(--danger); }
+.live-box-head { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+.live-box-badge { background: #ef444433; color: var(--danger); font-family: var(--font-display); font-size: 12px; font-weight: 800; letter-spacing: .08em; padding: 2px 8px; border-radius: 5px; text-transform: uppercase; animation: live-pulse 1.4s ease-in-out infinite; }
+.live-box-min { font-size: 12px; color: var(--text2); font-weight: 600; }
+.live-box-teams { display: flex; align-items: center; gap: 10px; }
+.live-box-team { flex: 1; font-size: 15px; font-weight: 800; }
+.live-box-team.away { text-align: right; }
+.live-box-score { font-family: var(--font-display); font-size: 25px; font-weight: 800; color: var(--danger); min-width: 58px; text-align: center; font-variant-numeric: tabular-nums; }
+.live-box-hint { font-size: 11px; color: var(--text2); margin-top: 7px; }
+
+/* Next-match widget jump button */
+.nmw-jump { display: inline-flex; align-items: center; gap: 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 7px 13px; font-size: 13px; font-weight: 700; color: var(--text); cursor: pointer; transition: .15s; font-family: var(--font-body); }
+.nmw-jump:hover { border-color: var(--accent); color: var(--accent); }
+.nmw-jump.untipped { color: var(--danger); border-color: #ef444455; }
+.nmw-jump.untipped:hover { border-color: var(--danger); color: var(--danger); }
+
+/* Match stats modal block */
+.ms-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 14px; }
+.ms-stat { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.ms-stat-val { font-family: var(--font-display); font-size: 18px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
+.ms-stat-key { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: .05em; }
+.ms-live-note { font-size: 11px; color: var(--danger); font-weight: 600; margin-bottom: 10px; }
+
   </style>
 </head>
 <body>
@@ -851,6 +889,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
     async function doLogout() {
       clearInterval(apiPollTimer);
       clearInterval(_nextMatchTimer);
+      clearInterval(_liveDataTimer);
       currentUser = null; currentUserData = null; isAdminUser = false;
       allMatches = {}; allTips = {}; allUsers = {};
       await auth.signOut();
@@ -913,6 +952,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       buildNav();
       await seedMatchesIfNeeded();
       showTab('tab-matches');
+      startLiveDataPolling();
     }
 
     function buildNav() {
@@ -1290,45 +1330,108 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       </div>`;
     }
 
-    // === NEXT MATCH WIDGET ===
+    // === NEXT MATCH + LIVE WIDGETS ===
+    // Élő állás becsült perce (a football-data ingyenes tier nem ad pontos percet).
+    function liveMinuteStr(match) {
+      if (match.live && match.live.minute != null) return `${match.live.minute}'`;
+      const mins = Math.floor((new Date() - new Date(match.datetime)) / 60000);
+      if (mins < 0) return '';
+      if (mins <= 45) return `~${mins}'`;
+      if (mins <= 60) return 'Szünet';
+      const adj = mins - 15; // ~15 perc félidei szünet levonása
+      if (adj >= 90) return "90+'";
+      return `~${adj}'`;
+    }
+    // Élő (vagy a jelenlegi) állás — final eredmény hiányában az élő mezőből.
+    function liveScorePair(match) {
+      const h = (match.live && match.live.home != null) ? match.live.home
+              : (match.resultHome != null ? match.resultHome : 0);
+      const a = (match.live && match.live.away != null) ? match.live.away
+              : (match.resultAway != null ? match.resultAway : 0);
+      return [h, a];
+    }
+
     function renderNextMatchWidget() {
       const el = document.getElementById('next-match-widget');
       if (!el) return;
       const now = new Date();
       const uid = currentUser ? currentUser.uid : null;
       const myTips = uid ? (allTips[uid] || {}) : {};
-      const upcoming = Object.values(allMatches)
-        .filter(m => new Date(m.datetime) > now)
-        .sort((a,b) => new Date(a.datetime) - new Date(b.datetime));
-      const next = upcoming[0];
-      if (!next) { el.innerHTML = ''; return; }
-      const diff = new Date(next.datetime) - now;
-      const totalMin = Math.floor(diff / 60000);
-      let countdown;
-      if (totalMin >= 60) {
-        const h = Math.floor(totalMin / 60), m = totalMin % 60;
-        countdown = `${h}ó ${m < 10 ? '0' : ''}${m}p`;
-      } else {
-        const m = Math.floor(diff / 60000), s = Math.floor((diff % 60000) / 1000);
-        countdown = `${m}p ${s < 10 ? '0' : ''}${s}mp`;
+      const all = Object.entries(allMatches).map(([id, m]) => ({ id, ...m }));
+
+      let html = '';
+
+      // ÉLŐ meccsek — kiemelt doboz(ok) az aktuális állással + becsült perccel
+      const liveMatches = all.filter(m => isMatchLive(m))
+        .sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+      for (const m of liveMatches) {
+        const [lh, la] = liveScorePair(m);
+        html += `<div class="live-box" onclick="openMatchStats('${m.id}')">
+          <div class="live-box-head"><span class="live-box-badge">&#x25CF; Élő</span><span class="live-box-min">${liveMinuteStr(m)}</span></div>
+          <div class="live-box-teams">
+            <span class="live-box-team">${getFlag(m.home)}${m.home || 'TBD'}</span>
+            <span class="live-box-score">${lh}&ndash;${la}</span>
+            <span class="live-box-team away">${getFlag(m.away)}${m.away || 'TBD'}</span>
+          </div>
+          <div class="live-box-hint">Kattints a statisztikákért &rarr;</div>
+        </div>`;
       }
-      const isTipped = !!myTips[next.id];
-      el.innerHTML = `<div class="next-match-widget">
-        <div class="nmw-label">Következő meccs</div>
-        <div class="nmw-teams">${getFlag(next.home)}${next.home} — ${getFlag(next.away)}${next.away}</div>
-        <div class="nmw-row">
-          <div class="nmw-countdown">${countdown}</div>
-          ${isTipped
-            ? '<span class="nmw-tipped">&#x2713; Tippelve</span>'
-            : '<span class="nmw-untipped">Még nem tippeltem!</span>'}
-        </div>
-      </div>`;
+
+      // Következő, még el nem indult meccs — javított tipp-felismeréssel + ugrás gombbal
+      const next = all.filter(m => new Date(m.datetime) > now)
+        .sort((a, b) => new Date(a.datetime) - new Date(b.datetime))[0];
+      if (next) {
+        const diff = new Date(next.datetime) - now;
+        const totalMin = Math.floor(diff / 60000);
+        let countdown;
+        if (totalMin >= 60) {
+          const h = Math.floor(totalMin / 60), m = totalMin % 60;
+          countdown = `${h}ó ${m < 10 ? '0' : ''}${m}p`;
+        } else {
+          const m = Math.floor(diff / 60000), s = Math.floor((diff % 60000) / 1000);
+          countdown = `${m}p ${s < 10 ? '0' : ''}${s}mp`;
+        }
+        const myTip = myTips[next.id];
+        const jumpBtn = myTip
+          ? `<button class="nmw-jump" onclick="goToMatch('${next.id}')">&#x2713; Tipped: ${myTip.home}&ndash;${myTip.away} &middot; Ugrás a meccshez &rarr;</button>`
+          : `<button class="nmw-jump untipped" onclick="goToMatch('${next.id}')">Még nem tippeltem &mdash; tippelj! &rarr;</button>`;
+        html += `<div class="next-match-widget">
+          <div class="nmw-label">Következő meccs</div>
+          <div class="nmw-teams">${getFlag(next.home)}${next.home} — ${getFlag(next.away)}${next.away}</div>
+          <div class="nmw-row">
+            <div class="nmw-countdown">${countdown}</div>
+            ${jumpBtn}
+          </div>
+        </div>`;
+      }
+
+      el.innerHTML = html;
     }
 
     function startNextMatchWidget() {
       if (_nextMatchTimer) clearInterval(_nextMatchTimer);
       renderNextMatchWidget();
       _nextMatchTimer = setInterval(renderNextMatchWidget, 1000);
+    }
+
+    // Egy adott meccshez ugrás a Meccsek tabon (kieséses → modal, csoport → kártya kiemelése)
+    const KNOCKOUT_GROUPS = ['LAST_32','LAST_16','ROUND_OF_16','QUARTER_FINALS','SEMI_FINALS','THIRD_PLACE','FINAL'];
+    function goToMatch(matchId) {
+      const m = allMatches[matchId];
+      if (!m) return;
+      showTab('tab-matches');
+      if (KNOCKOUT_GROUPS.includes(m.group)) { openMatchStats(matchId); return; }
+      matchFilter = 'all';
+      renderMatches();
+      setTimeout(() => {
+        const card = document.querySelector(`#tab-matches .match-card[data-mid="${matchId}"]`);
+        if (!card) return;
+        const det = card.closest('details.group-accordion');
+        if (det) det.open = true;
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card.classList.add('match-flash');
+        setTimeout(() => card.classList.remove('match-flash'), 1500);
+      }, 60);
     }
 
     // === RENDER: MATCHES ===
@@ -1359,10 +1462,15 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
     }
 
     function isMatchLive(match) {
+      // Végeredmény megvan → már nem él
+      if (match.resultHome != null && match.resultAway != null) return false;
+      // A szerver-szinkron által jelölt élő státusz a legmegbízhatóbb
+      if (match.live && (match.live.status === 'IN_PLAY' || match.live.status === 'PAUSED')) return true;
+      // Fallback: időablak a kezdéstől (félidő + ráadás miatt 125 perc)
       const now = new Date();
       const start = new Date(match.datetime);
-      const end = new Date(start.getTime() + 110 * 60 * 1000);
-      return now >= start && now < end && match.resultHome == null;
+      const end = new Date(start.getTime() + 125 * 60 * 1000);
+      return now >= start && now < end;
     }
 
     function formatDatetimeSmart(isoStr) {
@@ -1443,11 +1551,17 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         if (!grouped[groupKey]) return '';
         const label = GROUP_LABELS[groupKey] || groupKey;
         const open = isOpen ? ' open' : '';
-        const filtered = grouped[groupKey].filter(m => matchPassesFilter(m, myTips));
+        // A már lejátszott meccsek a doboz aljára kerülnek (nem-lejátszott elöl, mindkét csoporton belül időrendben)
+        const filtered = grouped[groupKey].filter(m => matchPassesFilter(m, myTips))
+          .sort((a, b) => {
+            const fa = (a.resultHome != null && a.resultAway != null) ? 1 : 0;
+            const fb = (b.resultHome != null && b.resultAway != null) ? 1 : 0;
+            return (fa - fb) || (new Date(a.datetime) - new Date(b.datetime));
+          });
         if (filtered.length === 0) return '';
         const cards = filtered.map(m => renderMatchCard(m, myTips[m.id] || null)).join('');
         const tableHtml = renderGroupTable(groupKey);
-        return `<details class="group-accordion"${open}><summary>${label} <span style="color:var(--text2);font-size:11px;font-weight:400">(${filtered.length})</span></summary><div class="group-body">${cards}${tableHtml}</div></details>`;
+        return `<details class="group-accordion" data-group="${groupKey}"${open}><summary>${label} <span style="color:var(--text2);font-size:11px;font-weight:400">(${filtered.length})</span></summary><div class="group-body">${cards}${tableHtml}</div></details>`;
       };
 
       const GROUP_STAGES = ['GROUP_A','GROUP_B','GROUP_C','GROUP_D','GROUP_E','GROUP_F','GROUP_G','GROUP_H','GROUP_I','GROUP_J','GROUP_K','GROUP_L'];
@@ -1510,11 +1624,11 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
             return `<div class="other-tip-row"><span>${uname}</span><span class="other-tip-score">${t.home}&ndash;${t.away}</span>${pts}</div>`;
           });
         if (tipRows.length) {
-          let body = tipRows.slice(0, 3).join('');
-          if (tipRows.length > 3) {
-            body += `<details class="others-more"><summary>+${tipRows.length - 3} további tipp megjelenítése</summary>${tipRows.slice(3).join('')}</details>`;
-          }
-          othersHtml = `<div class="others-tips"><div class="others-tips-title">Mások tippjei (${tipRows.length})</div>${body}</div>`;
+          const body = tipRows.slice(0, 3).join('');
+          const moreHint = tipRows.length > 3
+            ? `<div style="font-size:11px;color:var(--text2);margin-top:5px">+${tipRows.length - 3} további &mdash; kattints a meccsre a teljes statisztikáért</div>`
+            : '';
+          othersHtml = `<div class="others-tips"><div class="others-tips-title">Mások tippjei (${tipRows.length})</div>${body}${moreHint}</div>`;
         }
       }
 
@@ -1528,7 +1642,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
             <span class="tip-separator">&ndash;</span>
             <input class="tip-input" type="number" min="0" max="20" id="tip-a-${match.id}" value="${a}" placeholder="0">
             <button class="btn btn-primary btn-sm" onclick="saveTip('${match.id}')">Mentés</button>
-            <span id="tip-status-${match.id}" class="tip-saved" style="display:none">&#x2713;</span>
+            <span id="tip-status-${match.id}" class="tip-saved-persist" style="display:${myTip != null ? 'inline-flex' : 'none'}">&#x2713; Mentve</span>
           </div>`;
       } else if (myTip) {
         let pts = '';
@@ -1541,20 +1655,27 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         tipHtml = `<div class="tip-locked"><span class="tip-no-tip">Nem tippeltem erre</span></div>`;
       }
 
-      const resultStr = hasResult ? `${match.resultHome}&ndash;${match.resultAway}` : '&ndash;';
+      // Élő meccsnél az aktuális (élő) állást mutatjuk, ha még nincs végeredmény
+      let displayScore = '&ndash;';
+      if (hasResult) { displayScore = `${match.resultHome}&ndash;${match.resultAway}`; }
+      else if (live) { const [lh, la] = liveScorePair(match); displayScore = `${lh}&ndash;${la}`; }
       const overrideBadge = match.resultOverride ? ' <span class="badge badge-override">Admin</span>' : '';
-      const liveBadge = live ? ' <span class="badge badge-live">&#x25CF; LIVE</span>' : '';
+      const liveBadge = live ? ` <span class="badge badge-live">&#x25CF; ÉLŐ ${liveMinuteStr(match)}</span>` : '';
       const liveClass = live ? ' match-live' : '';
+      const playedClass = hasResult ? ' match-played' : '';
+      // Lezárt (élő vagy lejátszott) meccsre kattintva a statisztika modal nyílik meg
+      const clickable = locked ? ' match-clickable' : '';
+      const cardClick = locked ? ` onclick="openMatchStats('${match.id}')"` : '';
 
       return `
-        <div class="match-card${liveClass}">
+        <div class="match-card${liveClass}${playedClass}${clickable}" data-mid="${match.id}"${cardClick}>
           <div class="match-meta">
             <span>${formatDatetimeSmart(match.datetime)}</span>
             <span>${overrideBadge}${liveBadge}</span>
           </div>
           <div class="match-teams">
             <div class="team-name">${getFlag(match.home)}${match.home || 'TBD'}</div>
-            <div class="match-result">${resultStr}</div>
+            <div class="match-result">${displayScore}</div>
             <div class="team-name away">${getFlag(match.away)}${match.away || 'TBD'}</div>
           </div>
           ${tipHtml}
@@ -1577,10 +1698,111 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         if (!allTips[uid]) allTips[uid] = {};
         allTips[uid][matchId] = tip;
         const statusEl = document.getElementById(`tip-status-${matchId}`);
-        if (statusEl) { statusEl.style.display = 'inline'; setTimeout(() => statusEl.style.display = 'none', 2000); }
+        if (statusEl) { statusEl.innerHTML = '&#x2713; Mentve'; statusEl.style.display = 'inline-flex'; }
       } catch {
         showToast('Mentési hiba — ellenőrizd az internetkapcsolatot!', 'error');
       }
+    }
+
+    // === MATCH STATS MODAL ===
+    // Egy meccs tipp-statisztikái: hányan tippeltek, telitalálatok, jó kimenetel, átlagtipp + minden tipp
+    function matchTipStats(matchId, rH, rA) {
+      const hasRes = rH != null && rA != null;
+      const rows = [];
+      let count = 0, exact = 0, correct = 0, sumH = 0, sumA = 0;
+      for (const [u, tips] of Object.entries(allTips)) {
+        const t = tips[matchId];
+        if (!t) continue;
+        const uname = (allUsers[u] && allUsers[u].displayName) || '???';
+        count++; sumH += t.home; sumA += t.away;
+        let pts = null;
+        if (hasRes) {
+          pts = calculateMatchPoints(t, rH, rA);
+          if (t.home === rH && t.away === rA) exact++;
+          const to = t.home > t.away ? 'H' : t.home < t.away ? 'A' : 'D';
+          const ro = rH > rA ? 'H' : rH < rA ? 'A' : 'D';
+          if (to === ro) correct++;
+        }
+        rows.push({ u, uname, t, pts, me: u === currentUser.uid });
+      }
+      rows.sort((a, b) => (b.pts ?? -1) - (a.pts ?? -1) || (a.me ? -1 : 0));
+      return { count, exact, correct, avgH: count ? sumH / count : 0, avgA: count ? sumA / count : 0, rows };
+    }
+
+    function openMatchStats(matchId) {
+      const m = allMatches[matchId];
+      if (!m) return;
+      const live = isMatchLive(m);
+      const hasResult = m.resultHome != null && m.resultAway != null;
+      let scoreH = null, scoreA = null;
+      if (hasResult) { scoreH = m.resultHome; scoreA = m.resultAway; }
+      else if (live) { [scoreH, scoreA] = liveScorePair(m); }
+      const scoreStr = (scoreH != null && scoreA != null) ? `${scoreH}&ndash;${scoreA}` : '&ndash;';
+      const statusLine = hasResult
+        ? 'Vége'
+        : (live ? `<span style="color:var(--danger);font-weight:700">&#x25CF; Élő &middot; ${liveMinuteStr(m)}</span>` : formatDatetimeSmart(m.datetime));
+      const roundLabel = GROUP_LABELS[m.group] || m.group || '';
+
+      const st = matchTipStats(matchId, scoreH, scoreA);
+      const liveNote = (live && !hasResult)
+        ? `<div class="ms-live-note">&#x25CF; Élő állás szerinti ideiglenes pontok</div>` : '';
+      const statGrid = `<div class="ms-stats-grid">
+        <div class="ms-stat"><div class="ms-stat-val">${st.count}</div><div class="ms-stat-key">Tippelő</div></div>
+        <div class="ms-stat"><div class="ms-stat-val">${st.exact}</div><div class="ms-stat-key">Telitalálat</div></div>
+        <div class="ms-stat"><div class="ms-stat-val">${st.correct}</div><div class="ms-stat-key">Jó kimenetel</div></div>
+        <div class="ms-stat"><div class="ms-stat-val">${st.avgH.toFixed(1)}&ndash;${st.avgA.toFixed(1)}</div><div class="ms-stat-key">Átlagtipp</div></div>
+      </div>`;
+      const rowsHtml = st.rows.length
+        ? st.rows.map(r => {
+            const pts = r.pts != null ? ptsBadge(r.pts) : '';
+            const meStyle = r.me ? 'background:var(--surface2);border-radius:6px;padding:3px 6px' : '';
+            return `<div class="other-tip-row" style="${meStyle}"><span>${r.uname}${r.me ? ' <span style="color:var(--text2);font-size:11px">(te)</span>' : ''}</span><span class="other-tip-score">${r.t.home}&ndash;${r.t.away}</span>${pts}</div>`;
+          }).join('')
+        : `<div style="color:var(--text2);font-size:13px;padding:4px 0">Még senki nem tippelt erre a meccsre.</div>`;
+
+      document.getElementById('bracket-modal-content').innerHTML = `
+        <div class="bm-round">${roundLabel}</div>
+        <div class="bm-date">${statusLine}</div>
+        <div class="bm-teams">
+          <div class="bm-tname">${getFlag(m.home)}${m.home || 'TBD'}</div>
+          <div class="bm-tscore">${scoreStr}</div>
+          <div class="bm-tname away">${getFlag(m.away)}${m.away || 'TBD'}</div>
+        </div>
+        ${liveNote}
+        ${statGrid}
+        <div class="others-tips-title" style="margin-bottom:6px">Tippek (${st.count})</div>
+        ${rowsHtml}`;
+      document.getElementById('bracket-modal').hidden = false;
+    }
+
+    // === LIVE AUTO-REFRESH ===
+    // 45 mp-enként frissíti a meccseket/tippeket a Firebase-ből, hogy az élő állás és a
+    // friss eredmények manuális újratöltés nélkül megjelenjenek.
+    let _liveDataTimer = null;
+    function startLiveDataPolling() {
+      if (_liveDataTimer) clearInterval(_liveDataTimer);
+      _liveDataTimer = setInterval(refreshLiveData, 45000);
+    }
+    async function refreshLiveData() {
+      try {
+        const [matchesRaw, tipsRaw] = await Promise.all([
+          fbGet('matches').catch(() => null),
+          fbGet('tips').catch(() => null),
+        ]);
+        if (matchesRaw) allMatches = matchesRaw;
+        if (tipsRaw) allTips = tipsRaw;
+        const matchesTab = document.getElementById('tab-matches');
+        if (matchesTab && !matchesTab.hidden) {
+          const modalOpen = !document.getElementById('bracket-modal').hidden;
+          if (modalOpen) {
+            renderNextMatchWidget();
+          } else {
+            const openGroups = [...document.querySelectorAll('#tab-matches details.group-accordion[open]')].map(d => d.dataset.group);
+            renderMatches();
+            openGroups.forEach(g => { const d = document.querySelector(`#tab-matches details.group-accordion[data-group="${g}"]`); if (d) d.open = true; });
+          }
+        }
+      } catch {}
     }
 
     // === SCORING ===

@@ -137,6 +137,38 @@ async function main() {
   } else {
     console.log('No updates needed');
   }
+
+  // === ÉLŐ (in-play) meccsek: aktuális állás külön `live` mezőbe, a végeredmény érintése nélkül ===
+  // Így a kliens élőben mutatja az állást, de a pontozás/tabella csak a végeredménnyel számol.
+  try {
+    const allData = await fetchFromFD(`/competitions/${WC_COMPETITION}/matches?season=${WC_SEASON}`);
+    if (allData && allData.matches) {
+      let liveCount = 0;
+      for (const m of allData.matches) {
+        const existing = matches[m.id];
+        if (!existing) continue;
+        const st = m.status;
+        if (st === 'IN_PLAY' || st === 'PAUSED') {
+          await fbUpdate(`/matches/${m.id}`, {
+            live: {
+              status: st,
+              home: m.score?.fullTime?.home ?? 0,
+              away: m.score?.fullTime?.away ?? 0,
+              minute: m.minute ?? null,
+              updated: new Date().toISOString(),
+            },
+          });
+          liveCount++;
+        } else if (existing.live) {
+          // Már nem él → a korábbi live jelölő törlése
+          await request(`${DB_URL}/matches/${m.id}/live.json?auth=${dbSecret}`, { method: 'DELETE' });
+        }
+      }
+      console.log(`Live in-play matches: ${liveCount}`);
+    }
+  } catch (e) {
+    console.warn('Live sync skipped:', e.message);
+  }
 }
 
 main()
