@@ -1338,49 +1338,76 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       </div>`;
     }
 
-    // === ÉLŐ OVERLAY (ingyenes, kliensoldali — worldcup26.ir, CORS-engedélyezett) ===
+    // === ÉLŐ OVERLAY (ingyenes, kliensoldali — ESPN, CORS: Access-Control-Allow-Origin: *) ===
     // Csak megjelenítésre szolgál; a pontozást/tabellát SOHA nem érinti (azok a /matches
-    // végeredményéből számolnak). A flaky GitHub-cron helyett valós idejű, ingyenes élő forrás.
-    const LIVE_API = 'https://worldcup26.ir/get/games';
+    // végeredményéből számolnak). Az ESPN forrás kulcs nélküli, böngészőből hívható (a
+    // worldcup26.ir-rel ellentétben, ami nem küld CORS-fejlécet), valós idejű percet és
+    // gólszerzőket ad, és football-data-kompatibilis csapatneveket használ ("Czechia" stb.).
+    const LIVE_API = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard';
     function _normTeam(n) {
       if (!n) return '';
       const s = n.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
         .replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
       const aliases = {
         'turkiye': 'turkey', 'cote d ivoire': 'ivory coast',
-        'korea republic': 'south korea', 'ir iran': 'iran', 'czech republic': 'czechia',
-        'usa': 'united states', 'congo dr': 'dr congo',
+        'korea republic': 'south korea', 'korea dpr': 'north korea',
+        'ir iran': 'iran', 'czech republic': 'czechia',
+        'usa': 'united states', 'congo dr': 'dr congo', 'china pr': 'china',
         'cape verde islands': 'cape verde', 'bosnia and herzegovina': 'bosnia herzegovina',
       };
       return aliases[s] || s;
     }
     const _pairKey = (home, away) => `${_normTeam(home)}|${_normTeam(away)}`;
-    function _parseScorers(raw) {
-      if (!raw || raw === 'null') return [];
-      return raw.replace(/^\{|\}$/g, '').split('","').map(s => s.replace(/^"|"$/g, '').trim()).filter(Boolean);
+    // ESPN gólszerzők kinyerése a mi (esetleg felcserélt) hazai/vendég oldalunkra vetítve.
+    function _espnScorers(c, sideById) {
+      const home = [], away = [];
+      for (const d of (c.details || [])) {
+        if (!d.scoringPlay) continue;
+        const who = (d.athletesInvolved || []).map(a => a.displayName).join(', ') || 'Gól';
+        const min = (d.clock && d.clock.displayValue) ? ' ' + d.clock.displayValue : '';
+        const side = d.team && sideById[d.team.id];
+        if (side === 'H') home.push(who + min);
+        else if (side === 'A') away.push(who + min);
+      }
+      return { home, away };
     }
     async function refreshLiveOverlay() {
       try {
         const res = await fetch(LIVE_API, { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
-        const games = Array.isArray(data) ? data : (data.games || data.data || []);
+        const events = data.events || [];
+        // ESPN meccsek kulcsolása normalizált csapat-pár szerint.
         const byPair = {};
-        for (const g of games) byPair[_pairKey(g.home_team_name_en, g.away_team_name_en)] = g;
+        for (const e of events) {
+          const c = e.competitions && e.competitions[0];
+          if (!c || !c.competitors) continue;
+          const hC = c.competitors.find(x => x.homeAway === 'home');
+          const aC = c.competitors.find(x => x.homeAway === 'away');
+          if (!hC || !aC) continue;
+          byPair[_pairKey(hC.team.displayName, aC.team.displayName)] = { c, hC, aC };
+        }
         const overlay = {};
         for (const [id, m] of Object.entries(allMatches)) {
-          const g = byPair[_pairKey(m.home, m.away)];
-          if (!g) continue;
-          const te = (g.time_elapsed || '').toLowerCase();
-          const finished = (g.finished || '').toUpperCase() === 'TRUE' || te === 'finished';
-          const notStarted = te === 'notstarted' || te === '';
+          // Sorrend-független párosítás: ha az ESPN a hazai/vendéget fordítva listázza,
+          // felcseréljük, hogy a pontszámok a mi m.home/m.away oldalunkra kerüljenek.
+          let rec = byPair[_pairKey(m.home, m.away)], swap = false;
+          if (!rec) { rec = byPair[_pairKey(m.away, m.home)]; swap = true; }
+          if (!rec) continue;
+          const myHome = swap ? rec.aC : rec.hC;
+          const myAway = swap ? rec.hC : rec.aC;
+          const st = (rec.c.status && rec.c.status.type) ? rec.c.status.type.state : 'pre'; // pre|in|post
+          const status = st === 'post' ? 'FINISHED' : (st === 'in' ? 'LIVE' : 'SCHEDULED');
+          const sideById = { [myHome.team.id]: 'H', [myAway.team.id]: 'A' };
+          const sc = _espnScorers(rec.c, sideById);
+          const clock = (rec.c.status && (rec.c.status.displayClock || (rec.c.status.type && rec.c.status.type.shortDetail))) || '';
           overlay[id] = {
-            status: finished ? 'FINISHED' : (notStarted ? 'SCHEDULED' : 'LIVE'),
-            home: g.home_score != null && g.home_score !== '' ? parseInt(g.home_score) : null,
-            away: g.away_score != null && g.away_score !== '' ? parseInt(g.away_score) : null,
-            scorersHome: _parseScorers(g.home_scorers),
-            scorersAway: _parseScorers(g.away_scorers),
-            raw: te,
+            status,
+            home: (myHome.score != null && myHome.score !== '') ? parseInt(myHome.score) : null,
+            away: (myAway.score != null && myAway.score !== '') ? parseInt(myAway.score) : null,
+            scorersHome: sc.home,
+            scorersAway: sc.away,
+            raw: String(clock),
           };
         }
         liveOverlay = overlay;
