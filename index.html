@@ -753,6 +753,8 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
     let allPretournament = {};
     let liveOverlay = {};            // matchId → { status, home, away, scorersHome, scorersAway, raw } (ingyenes élő forrás)
     let _liveOverlayTimer = null;
+    let _statsModalMatchId = null;   // ha a meccs-statisztika modal nyitva van, ennek a meccsnek az id-ja (élő auto-refreshhez)
+    let scoreboardView = 'final';    // ranglista al-nézet: 'final' (csak végeredmény) | 'live' (élő ideiglenes pontokkal)
     let matchFilter = 'all';
     const _expandedUsers = new Set();
     let _adminResultFilter = 'no_result';
@@ -1202,6 +1204,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
     function openBracketModal(matchId) {
       const m = allMatches[matchId];
       if (!m) return;
+      _statsModalMatchId = null;   // bracket-tipp modal — nem a stat-modal
       const locked = isMatchLocked(m);
       const hasResult = m.resultHome != null && m.resultAway != null;
       const myTip = (allTips[currentUser.uid] || {})[matchId];
@@ -1260,6 +1263,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
 
     function closeBracketModal() {
       document.getElementById('bracket-modal').hidden = true;
+      _statsModalMatchId = null;
     }
 
     function updateBracketScrollFade(el) {
@@ -1388,7 +1392,21 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
           renderMatches();
           og.forEach(g => { const d = document.querySelector(`#tab-matches details.group-accordion[data-group="${g}"]`); if (d) d.open = true; });
         }
+        refreshLiveViews();
       } catch {}
+    }
+    // Nyitott élő stat-modal + élő ranglista frissítése a poll-ciklusokból (befagyás-mentesítés).
+    function refreshLiveViews() {
+      if (_statsModalMatchId) {
+        const m = allMatches[_statsModalMatchId];
+        if (m && isMatchLive({ id: _statsModalMatchId, ...m })) openMatchStats(_statsModalMatchId);
+      }
+      const sbTab = document.getElementById('tab-scoreboard');
+      if (sbTab && !sbTab.hidden && scoreboardView === 'live') {
+        const openBd = [...sbTab.querySelectorAll('tr.sb-breakdown.open')].map(r => r.id);
+        renderScoreboard();
+        openBd.forEach(id => { const r = document.getElementById(id); if (r) r.classList.add('open'); });
+      }
     }
     function startLiveOverlayPolling() {
       if (_liveOverlayTimer) clearInterval(_liveOverlayTimer);
@@ -1534,9 +1552,12 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
     function isMatchLive(match) {
       // Végeredmény megvan → már nem él
       if (match.resultHome != null && match.resultAway != null) return false;
-      // Az ingyenes élő overlay (worldcup26.ir) a legmegbízhatóbb, ha ismeri a meccset
+      // Az ingyenes élő overlay (worldcup26.ir): biztos jelek azonnal érvényesek,
+      // de SCHEDULED/notstarted (lassan váltó forrás) esetén ne zárjuk ki az élő státuszt —
+      // essen vissza a szerver-szinkronra és az időablakra.
       const ov = match.id ? liveOverlay[match.id] : null;
-      if (ov) return ov.status === 'LIVE';
+      if (ov && ov.status === 'FINISHED') return false;
+      if (ov && ov.status === 'LIVE') return true;
       // A szerver-szinkron által jelölt élő státusz
       if (match.live && (match.live.status === 'IN_PLAY' || match.live.status === 'PAUSED')) return true;
       // Fallback: időablak a kezdéstől (félidő + ráadás miatt 125 perc)
@@ -1862,6 +1883,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         <div class="others-tips-title" style="margin-bottom:6px">Tippek (${st.count})</div>
         ${rowsHtml}`;
       document.getElementById('bracket-modal').hidden = false;
+      _statsModalMatchId = matchId;   // élő meccsnél a poll-ciklus újrarajzolja
     }
 
     // === LIVE AUTO-REFRESH ===
@@ -1891,6 +1913,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
             openGroups.forEach(g => { const d = document.querySelector(`#tab-matches details.group-accordion[data-group="${g}"]`); if (d) d.open = true; });
           }
         }
+        refreshLiveViews();
       } catch {}
     }
 
@@ -1938,17 +1961,36 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       return calculateUserTotalBreakdown(uid).total;
     }
 
-    function calculateUserTotalBreakdown(uid) {
+    function calculateUserTotalBreakdown(uid, includeLive = false) {
       const myTips = allTips[uid] || {};
       let matchPts = 0;
+      let livePts = 0;   // élő (még folyamatban lévő) meccsek ideiglenes pontjai
+      for (const [matchId, match] of Object.entries(allMatches)) {
+        const tip = myTips[matchId];
+        if (!tip) continue;
+        if (match.resultHome != null && match.resultAway != null) {
+          matchPts += calculateMatchPoints(tip, match.resultHome, match.resultAway);
+        } else if (includeLive && isMatchLive({ id: matchId, ...match })) {
+          const [lh, la] = liveScorePair({ id: matchId, ...match });
+          livePts += calculateMatchPoints(tip, lh, la);
+        }
+      }
+      const prePts = calculatePreTournamentPoints(allPretournament && allPretournament[uid]);
+      return { matchPts, livePts, prePts, total: matchPts + livePts + prePts };
+    }
+
+    // Egy játékos lejátszott-meccs tippjei, legújabb elöl (ranglista részletek + modal).
+    function getPlayedTipsForUser(uid) {
+      const myTips = allTips[uid] || {};
+      const out = [];
       for (const [matchId, match] of Object.entries(allMatches)) {
         if (match.resultHome == null || match.resultAway == null) continue;
         const tip = myTips[matchId];
         if (!tip) continue;
-        matchPts += calculateMatchPoints(tip, match.resultHome, match.resultAway);
+        out.push({ matchId, match, tip, pts: calculateMatchPoints(tip, match.resultHome, match.resultAway) });
       }
-      const prePts = calculatePreTournamentPoints(allPretournament && allPretournament[uid]);
-      return { matchPts, prePts, total: matchPts + prePts };
+      out.sort((a, b) => new Date(b.match.datetime) - new Date(a.match.datetime));
+      return out;
     }
 
     // === PRE-TOURNAMENT ===
@@ -2074,20 +2116,80 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       row.classList.toggle('open');
     }
 
+    function setScoreboardView(v) {
+      scoreboardView = v;
+      renderScoreboard();
+    }
+
+    // Egy lejátszott-meccs tipp sora (ranglista részletek + játékos-modal).
+    function playedTipRowHtml(p) {
+      const m = p.match;
+      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 2px;border-top:1px solid var(--border);font-size:12px">
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2)">${getFlag(m.home)}${m.home} ${m.resultHome}&ndash;${m.resultAway} ${getFlag(m.away)}${m.away}</span>
+        <span style="color:var(--text);font-weight:700" title="tipp">${p.tip.home}&ndash;${p.tip.away}</span>
+        ${ptsBadge(p.pts)}
+      </div>`;
+    }
+
+    // Aktív játékosok rangsora (a végállás szerint) — helyezés meghatározásához.
+    function activeUserRanking() {
+      return Object.entries(allUsers)
+        .filter(([, u]) => u.status === 'active')
+        .map(([uid]) => ({ uid, total: calculateUserTotalBreakdown(uid).total, tipped: Object.keys(allTips[uid] || {}).length }))
+        .sort((a, b) => b.total - a.total || b.tipped - a.tipped);
+    }
+
+    function openPlayerTipsModal(uid) {
+      const u = allUsers[uid];
+      if (!u) return;
+      const bd = calculateUserTotalBreakdown(uid);
+      const rank = activeUserRanking().findIndex(r => r.uid === uid) + 1;
+      const played = getPlayedTipsForUser(uid);
+      const list = played.length
+        ? played.map(playedTipRowHtml).join('')
+        : '<div style="color:var(--text2);font-size:13px;padding:6px 0">Még nincs értékelt tipp.</div>';
+      document.getElementById('bracket-modal-content').innerHTML = `
+        <div style="text-align:center;margin-bottom:6px">
+          ${rank > 0 ? `<div style="font-size:11px;color:var(--text2);font-weight:700;letter-spacing:.04em">${rank}. HELYEZETT</div>` : ''}
+          <div class="bm-tname" style="font-size:20px">${u.displayName}</div>
+          <div style="font-size:26px;font-weight:800;color:var(--accent);font-family:var(--font-display)">${bd.total} pont</div>
+        </div>
+        <div class="others-tips-title" style="margin:10px 0 4px">Összes tipp (${played.length})</div>
+        <div style="max-height:52vh;overflow-y:auto">${list}</div>`;
+      _statsModalMatchId = null;
+      document.getElementById('bracket-modal').hidden = false;
+    }
+
     function renderScoreboard() {
       const el = document.getElementById('tab-scoreboard');
+      const isLive = scoreboardView === 'live';
       const activeUsers = Object.entries(allUsers)
         .filter(([, u]) => u.status === 'active')
         .map(([uid, u]) => {
-          const bd = calculateUserTotalBreakdown(uid);
+          const bd = calculateUserTotalBreakdown(uid, isLive);
           const tippedCount = Object.keys(allTips[uid] || {}).length;
           return { uid, displayName: u.displayName, bd, tippedCount };
         })
         .sort((a, b) => b.bd.total - a.bd.total || b.tippedCount - a.tippedCount);
 
+      const pill = (v, label) => {
+        const active = scoreboardView === v;
+        return `<button onclick="setScoreboardView('${v}')" style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};background:${active ? 'var(--surface2)' : 'transparent'};color:${active ? 'var(--text)' : 'var(--text2)'};font-weight:700;font-size:13px;cursor:pointer">${label}</button>`;
+      };
+      const tabsHtml = `<div style="display:flex;gap:8px;margin-bottom:14px">${pill('final', 'Ranglista')}${pill('live', '&#x25CF; Élő')}</div>`;
+
       if (activeUsers.length === 0) {
-        el.innerHTML = '<div class="card" style="text-align:center;color:var(--text2)">Még nincsenek aktív játékosok.</div>';
+        el.innerHTML = tabsHtml + '<div class="card" style="text-align:center;color:var(--text2)">Még nincsenek aktív játékosok.</div>';
         return;
+      }
+
+      // Élő banner: van-e most futó meccs?
+      let liveBanner = '';
+      if (isLive) {
+        const liveActive = Object.entries(allMatches).some(([id, m]) => isMatchLive({ id, ...m }));
+        liveBanner = liveActive
+          ? '<div class="card" style="margin-bottom:14px;border-color:#ef444466;border-left:3px solid var(--danger);color:var(--text);font-size:13px">&#x25CF; <b>Élő állás</b> — a most futó meccs(ek) jelenlegi eredménye szerinti ideiglenes pontokkal.</div>'
+          : '<div class="card" style="margin-bottom:14px;color:var(--text2);font-size:13px">Jelenleg nincs élő meccs — a végállással egyezik.</div>';
       }
 
       // Podium (top 3)
@@ -2109,35 +2211,42 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
 
       const rows = activeUsers.map((u, i) => {
         const isMe = u.uid === currentUser.uid;
-        const rowStyle = isMe ? ' style="background:var(--surface2)"' : '';
-        const mainRow = `<tr${rowStyle} onclick="toggleScoreboardBreakdown('${u.uid}')" style="${isMe?'background:var(--surface2);':''}cursor:pointer">
+        const rowStyle = isMe ? ' style="background:var(--surface2);cursor:pointer"' : ' style="cursor:pointer"';
+        const liveSuffix = (isLive && u.bd.livePts) ? ` <span style="color:var(--danger);font-size:11px">(+${u.bd.livePts})</span>` : '';
+        const mainRow = `<tr${rowStyle} onclick="toggleScoreboardBreakdown('${u.uid}')">
           <td class="rank">${i + 1}.</td>
           <td class="player-name">${u.displayName}${isMe ? ' <span style="color:var(--text2);font-size:11px">(te)</span>' : ''}</td>
           <td style="color:var(--text2);font-size:12px;text-align:center">${u.tippedCount} tipp</td>
-          <td class="score-pts">${u.bd.total} pt <span style="color:var(--text2);font-size:11px">&#x25BE;</span></td>
+          <td class="score-pts">${u.bd.total} pt${liveSuffix} <span style="color:var(--text2);font-size:11px">&#x25BE;</span></td>
         </tr>`;
+
+        const grid = [
+          `<div class="sb-breakdown-item"><span class="sb-breakdown-val">${u.bd.matchPts}</span><span class="sb-breakdown-key">Meccstipp</span></div>`,
+          ...(isLive && u.bd.livePts ? [`<div class="sb-breakdown-item"><span class="sb-breakdown-val" style="color:var(--danger)">+${u.bd.livePts}</span><span class="sb-breakdown-key">Élő</span></div>`] : []),
+          `<div class="sb-breakdown-item"><span class="sb-breakdown-val">${u.bd.prePts}</span><span class="sb-breakdown-key">Előzetes</span></div>`,
+          `<div class="sb-breakdown-item"><span class="sb-breakdown-val" style="color:var(--accent)">${u.bd.total}</span><span class="sb-breakdown-key">Összesen</span></div>`,
+        ].join('');
+
+        const played = getPlayedTipsForUser(u.uid);
+        let tipsBlock;
+        if (played.length === 0) {
+          tipsBlock = '<div style="color:var(--text2);font-size:12px;padding:6px 2px">Még nincs értékelt tipp.</div>';
+        } else {
+          const recent = played.slice(0, 3).map(playedTipRowHtml).join('');
+          const moreBtn = `<button class="btn" style="width:100%;margin-top:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-size:12px;padding:7px" onclick="event.stopPropagation();openPlayerTipsModal('${u.uid}')">Összes megtekintése (${played.length}) &rarr;</button>`;
+          tipsBlock = `<div style="margin-top:10px"><div class="others-tips-title" style="margin-bottom:2px">Legutóbbi tippek</div>${recent}${moreBtn}</div>`;
+        }
+
         const breakdown = `<tr id="sb-bd-${u.uid}" class="sb-breakdown">
           <td colspan="4">
-            <div class="sb-breakdown-grid">
-              <div class="sb-breakdown-item">
-                <span class="sb-breakdown-val">${u.bd.matchPts}</span>
-                <span class="sb-breakdown-key">Meccstipp</span>
-              </div>
-              <div class="sb-breakdown-item">
-                <span class="sb-breakdown-val">${u.bd.prePts}</span>
-                <span class="sb-breakdown-key">Előzetes</span>
-              </div>
-              <div class="sb-breakdown-item">
-                <span class="sb-breakdown-val" style="color:var(--accent)">${u.bd.total}</span>
-                <span class="sb-breakdown-key">Összesen</span>
-              </div>
-            </div>
+            <div class="sb-breakdown-grid">${grid}</div>
+            ${tipsBlock}
           </td>
         </tr>`;
         return mainRow + breakdown;
       }).join('');
 
-      el.innerHTML = podiumHtml + `
+      el.innerHTML = tabsHtml + liveBanner + podiumHtml + `
         <div class="card" style="padding:0;overflow:hidden">
           <table class="scoreboard-table">
             <thead><tr>
