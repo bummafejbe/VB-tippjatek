@@ -1466,6 +1466,16 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       return [h, a];
     }
 
+    // ESPN szerint a meccs BEFEJEZETT, érvényes végeredménnyel → [home, away], különben null.
+    // A befejezett állás stabil (nem változik), ezért a pontozás definitívként veheti már
+    // azelőtt, hogy a szerver-szinkron beírná az autoritatív eredményt a /matches-be. Így a
+    // pont a meccs vége után ~30 mp-en belül megjelenik, nem kell a (throttle-ölt) cronra várni.
+    function overlayFinalScore(match) {
+      const ov = match.id ? liveOverlay[match.id] : null;
+      if (ov && ov.status === 'FINISHED' && ov.home != null && ov.away != null) return [ov.home, ov.away];
+      return null;
+    }
+
     function renderNextMatchWidget() {
       const el = document.getElementById('next-match-widget');
       if (!el) return;
@@ -1997,9 +2007,15 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         if (!tip) continue;
         if (match.resultHome != null && match.resultAway != null) {
           matchPts += calculateMatchPoints(tip, match.resultHome, match.resultAway);
-        } else if (includeLive && isMatchLive({ id: matchId, ...match })) {
-          const [lh, la] = liveScorePair({ id: matchId, ...match });
-          livePts += calculateMatchPoints(tip, lh, la);
+        } else {
+          const fin = overlayFinalScore({ id: matchId, ...match });
+          if (fin) {
+            // A meccsnek ESPN szerint vége van — definitív pont, akkor is, ha a szerver még nem írta be.
+            matchPts += calculateMatchPoints(tip, fin[0], fin[1]);
+          } else if (includeLive && isMatchLive({ id: matchId, ...match })) {
+            const [lh, la] = liveScorePair({ id: matchId, ...match });
+            livePts += calculateMatchPoints(tip, lh, la);
+          }
         }
       }
       const prePts = calculatePreTournamentPoints(allPretournament && allPretournament[uid]);
@@ -2011,10 +2027,17 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       const myTips = allTips[uid] || {};
       const out = [];
       for (const [matchId, match] of Object.entries(allMatches)) {
-        if (match.resultHome == null || match.resultAway == null) continue;
+        let rH, rA;
+        if (match.resultHome != null && match.resultAway != null) {
+          rH = match.resultHome; rA = match.resultAway;
+        } else {
+          const fin = overlayFinalScore({ id: matchId, ...match });
+          if (!fin) continue;
+          [rH, rA] = fin; // ESPN szerint vége — már a szerver-beírás előtt megjelenítjük
+        }
         const tip = myTips[matchId];
         if (!tip) continue;
-        out.push({ matchId, match, tip, pts: calculateMatchPoints(tip, match.resultHome, match.resultAway) });
+        out.push({ matchId, match, tip, rH, rA, pts: calculateMatchPoints(tip, rH, rA) });
       }
       out.sort((a, b) => new Date(b.match.datetime) - new Date(a.match.datetime));
       return out;
@@ -2151,8 +2174,10 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
     // Egy lejátszott-meccs tipp sora (ranglista részletek + játékos-modal).
     function playedTipRowHtml(p) {
       const m = p.match;
+      const rH = p.rH != null ? p.rH : m.resultHome;
+      const rA = p.rA != null ? p.rA : m.resultAway;
       return `<div style="display:flex;align-items:center;gap:8px;padding:5px 2px;border-top:1px solid var(--border);font-size:12px">
-        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2)">${getFlag(m.home)}${m.home} ${m.resultHome}&ndash;${m.resultAway} ${getFlag(m.away)}${m.away}</span>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2)">${getFlag(m.home)}${m.home} ${rH}&ndash;${rA} ${getFlag(m.away)}${m.away}</span>
         <span style="color:var(--text);font-weight:700" title="tipp">${p.tip.home}&ndash;${p.tip.away}</span>
         ${ptsBadge(p.pts)}
       </div>`;
