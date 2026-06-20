@@ -5,12 +5,13 @@ const DB_URL = 'https://vb-tippjatek-19fda-default-rtdb.europe-west1.firebasedat
 const FD_BASE = 'https://api.football-data.org/v4';
 const WC_COMPETITION = 'WC';
 const WC_SEASON = '2026';
+// Ingyenes, kulcs nélküli élő forrás (ugyanaz, amit a kliens is használ az overlayhez).
+// Szerver oldalon nincs CORS-korlát, így innen tudjuk a meccs tényleges végét gyorsabban
+// kiolvasni, mint ahogy a football-data.org FINISHED-re vált.
+const ESPN_API = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard';
 
 const dbSecret = process.env.FIREBASE_DB_SECRET;
 const apiKey = process.env.FOOTBALL_DATA_API_KEY;
-
-if (!dbSecret) { console.error('FIREBASE_DB_SECRET env var is required'); process.exit(1); }
-if (!apiKey)   { console.error('FOOTBALL_DATA_API_KEY env var is required'); process.exit(1); }
 
 function request(url, options = {}, body = null) {
   return new Promise((resolve, reject) => {
@@ -70,6 +71,57 @@ function fetchFromFD(endpoint) {
   return request(`${FD_BASE}${endpoint}`, {
     headers: { 'X-Auth-Token': apiKey },
   });
+}
+
+function fetchEspn() {
+  return request(ESPN_API, { headers: { 'User-Agent': 'vb-tippjatek-sync' } });
+}
+
+// --- ESPN csapatnév-normalizálás (a kliens _normTeam/_pairKey pontos megfelelője) ---
+function normTeam(n) {
+  if (!n) return '';
+  const s = n.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const aliases = {
+    'turkiye': 'turkey', 'cote d ivoire': 'ivory coast',
+    'korea republic': 'south korea', 'korea dpr': 'north korea',
+    'ir iran': 'iran', 'czech republic': 'czechia',
+    'usa': 'united states', 'congo dr': 'dr congo', 'china pr': 'china',
+    'cape verde islands': 'cape verde', 'bosnia and herzegovina': 'bosnia herzegovina',
+  };
+  return aliases[s] || s;
+}
+const pairKey = (home, away) => `${normTeam(home)}|${normTeam(away)}`;
+
+// Tiszta függvény: az ESPN scoreboard válaszából kinyeri a BEFEJEZETT (state === 'post')
+// meccsek végeredményét, a mi /matches csapatneveinkre vetítve (sorrend-független
+// párosítással). Csak akkor ad vissza eredményt, ha mindkét gólszám érvényes szám.
+// Visszatérés: { matchId: { resultHome, resultAway } }
+function espnFinishedResults(espnData, matches) {
+  const byPair = {};
+  for (const e of ((espnData && espnData.events) || [])) {
+    const c = e.competitions && e.competitions[0];
+    if (!c || !c.competitors) continue;
+    const hC = c.competitors.find(x => x.homeAway === 'home');
+    const aC = c.competitors.find(x => x.homeAway === 'away');
+    if (!hC || !aC) continue;
+    const state = (c.status && c.status.type) ? c.status.type.state : 'pre'; // pre | in | post
+    byPair[pairKey(hC.team.displayName, aC.team.displayName)] = { hC, aC, state };
+  }
+  const out = {};
+  for (const [id, m] of Object.entries(matches || {})) {
+    let rec = byPair[pairKey(m.home, m.away)], swap = false;
+    if (!rec) { rec = byPair[pairKey(m.away, m.home)]; swap = true; }
+    if (!rec) continue;
+    if (rec.state !== 'post') continue; // csak befejezett meccs
+    const myHome = swap ? rec.aC : rec.hC;
+    const myAway = swap ? rec.hC : rec.aC;
+    const rh = (myHome.score != null && myHome.score !== '') ? parseInt(myHome.score, 10) : null;
+    const ra = (myAway.score != null && myAway.score !== '') ? parseInt(myAway.score, 10) : null;
+    if (rh === null || ra === null || Number.isNaN(rh) || Number.isNaN(ra)) continue;
+    out[id] = { resultHome: rh, resultAway: ra };
+  }
+  return out;
 }
 
 async function writeLastSync(status, error) {
@@ -169,16 +221,59 @@ async function main() {
   } catch (e) {
     console.warn('Live sync skipped:', e.message);
   }
+
+  // === ESPN FALLBACK: a meccs tényleges vége azonnal pontozható legyen ===
+  // A football-data.org ingyenes tier sokszor késve vált FINISHED-re, ezért a végeredmény
+  // (resultHome/resultAway) — amiből a pontozás számol — sokáig hiányzik egy már lejátszott
+  // meccsnél. Az ESPN gyorsabban jelzi a befejezést; ha onnan van végeredmény egy nálunk még
+  // eredmény nélküli (és nem felülírt) meccshez, beírjuk. A football-data marad az elsődleges:
+  // ha később más eredményt ad, a FINISHED-ág felülírja (kivéve resultOverride).
+  try {
+    const espn = await fetchEspn();
+    // Csak azokra a meccsekre, amelyeknek MÉG nincs végeredménye és nincs kézi felülírás.
+    const candidates = {};
+    for (const [id, m] of Object.entries(matches)) {
+      if (m.resultOverride) continue;
+      if (m.resultHome != null && m.resultAway != null) continue;
+      if (updates[id]) continue; // ezt a football-data épp most frissítette
+      candidates[id] = m;
+    }
+    const espnResults = espnFinishedResults(espn, candidates);
+    const ids = Object.keys(espnResults);
+    if (ids.length > 0) {
+      for (const id of ids) {
+        await fbUpdate(`/matches/${id}`, espnResults[id]);
+        // A meccs véget ért → a korábbi élő jelölő törlése, ha volt.
+        if (matches[id] && matches[id].live) {
+          await request(`${DB_URL}/matches/${id}/live.json?auth=${dbSecret}`, { method: 'DELETE' });
+        }
+      }
+      console.log(`ESPN fallback: ${ids.length} befejezett meccs eredménye beírva (${ids.join(', ')})`);
+    } else {
+      console.log('ESPN fallback: nincs új befejezett eredmény');
+    }
+  } catch (e) {
+    console.warn('ESPN fallback skipped:', e.message);
+  }
 }
 
-main()
-  .then(async () => {
-    await writeLastSync('ok');
-    console.log('Sync complete!');
-    process.exit(0);
-  })
-  .catch(async err => {
-    console.error('Sync failed:', err.message);
-    await writeLastSync('error', err.message);
-    process.exit(1);
-  });
+// Tiszta segédfüggvények exportja teszteléshez (a main() ekkor NEM fut).
+module.exports = { espnFinishedResults, normTeam, pairKey };
+
+// Csak közvetlen futtatáskor (node sync-results.js) validálunk és indítjuk a sync-et.
+if (require.main === module) {
+  if (!dbSecret) { console.error('FIREBASE_DB_SECRET env var is required'); process.exit(1); }
+  if (!apiKey)   { console.error('FOOTBALL_DATA_API_KEY env var is required'); process.exit(1); }
+
+  main()
+    .then(async () => {
+      await writeLastSync('ok');
+      console.log('Sync complete!');
+      process.exit(0);
+    })
+    .catch(async err => {
+      console.error('Sync failed:', err.message);
+      await writeLastSync('error', err.message);
+      process.exit(1);
+    });
+}
