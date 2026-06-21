@@ -2,7 +2,7 @@
 // Egyszerű, függőség nélküli teszt az ESPN-fallback eredmény-kinyeréshez.
 // Futtatás:  node .github/scripts/sync-results.test.js
 const assert = require('assert');
-const { espnFinishedResults } = require('./sync-results.js');
+const { espnFinishedResults, planResultUpdate } = require('./sync-results.js');
 
 let passed = 0;
 function test(name, fn) {
@@ -63,6 +63,57 @@ test('post, de hiányzó pontszám — kihagyva (nem írunk fél eredményt)', (
 test('üres / hibás ESPN válasz — nem dob, üres eredmény', () => {
   assert.deepStrictEqual(espnFinishedResults({}, { '1': { home: 'A', away: 'B' } }), {});
   assert.deepStrictEqual(espnFinishedResults({ events: [] }, {}), {});
+});
+
+// === planResultUpdate: végeredmény-írás + utólagos korrekció (VAR) ===
+const WIN = 60 * 60 * 1000; // 60 perc
+const NOW = Date.parse('2026-06-21T20:00:00Z');
+const minsAgo = (m) => new Date(NOW - m * 60000).toISOString();
+
+test('plan: nincs még eredmény → beírja + időbélyeg (reason new)', () => {
+  const p = planResultUpdate({ home: 'A', away: 'B' }, { resultHome: 2, resultAway: 1 }, NOW, WIN);
+  assert.strictEqual(p.reason, 'new');
+  assert.strictEqual(p.resultHome, 2);
+  assert.strictEqual(p.resultAway, 1);
+  assert.strictEqual(p.resultSyncedAt, new Date(NOW).toISOString());
+});
+
+test('plan: azonos eredmény → nincs teendő (null)', () => {
+  const existing = { resultHome: 2, resultAway: 1, resultSyncedAt: minsAgo(5) };
+  assert.strictEqual(planResultUpdate(existing, { resultHome: 2, resultAway: 1 }, NOW, WIN), null);
+});
+
+test('plan: VAR visszavont gól az ablakon belül → KORRIGÁL (5-0 → 4-0)', () => {
+  // ez a konkrét bug: 5-0 volt beírva, a forrás már 4-0-t mond, 10 perccel a kiírás után
+  const existing = { resultHome: 5, resultAway: 0, resultSyncedAt: minsAgo(10) };
+  const p = planResultUpdate(existing, { resultHome: 4, resultAway: 0 }, NOW, WIN);
+  assert.strictEqual(p.reason, 'correction');
+  assert.strictEqual(p.resultHome, 4);
+  assert.strictEqual(p.resultAway, 0);
+  assert.strictEqual('resultSyncedAt' in p, false); // időbélyeg marad az eredeti
+});
+
+test('plan: eltérés az ablakon TÚL → lezárt, nem ír át (null)', () => {
+  const existing = { resultHome: 5, resultAway: 0, resultSyncedAt: minsAgo(90) };
+  assert.strictEqual(planResultUpdate(existing, { resultHome: 4, resultAway: 0 }, NOW, WIN), null);
+});
+
+test('plan: régi eredmény időbélyeg nélkül + eltérés → korrigál és felhúzza az időbélyeget', () => {
+  const existing = { resultHome: 5, resultAway: 0 }; // nincs resultSyncedAt
+  const p = planResultUpdate(existing, { resultHome: 4, resultAway: 0 }, NOW, WIN);
+  assert.strictEqual(p.reason, 'correction');
+  assert.strictEqual(p.resultSyncedAt, new Date(NOW).toISOString());
+});
+
+test('plan: kézi felülírást (resultOverride) soha nem bánt (null)', () => {
+  const existing = { resultHome: 5, resultAway: 0, resultOverride: true, resultSyncedAt: minsAgo(5) };
+  assert.strictEqual(planResultUpdate(existing, { resultHome: 4, resultAway: 0 }, NOW, WIN), null);
+});
+
+test('plan: nincs forrás-eredmény (null/hiányos) → nincs teendő', () => {
+  const existing = { resultHome: 5, resultAway: 0, resultSyncedAt: minsAgo(5) };
+  assert.strictEqual(planResultUpdate(existing, null, NOW, WIN), null);
+  assert.strictEqual(planResultUpdate(existing, { resultHome: 4, resultAway: null }, NOW, WIN), null);
 });
 
 console.log(`\n${passed} teszt sikeres.`);

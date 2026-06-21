@@ -124,6 +124,45 @@ function espnFinishedResults(espnData, matches) {
   return out;
 }
 
+// Tiszta döntésfüggvény: mit írjunk egy meccs eredményébe a forrás (res) alapján?
+// Visszatérés:
+//   null                       → nincs teendő
+//   { resultHome, resultAway, [resultSyncedAt], reason }  → ezt PATCH-eljük
+// reason: 'new' (első kiírás) | 'correction' (ablakon belüli felülírás, pl. VAR)
+// Szabályok:
+//  - resultOverride (kézi) → soha nem nyúlunk hozzá
+//  - nincs még eredmény → beírjuk + időbélyeg (innen indul az ellenőrzési ablak)
+//  - van eredmény és egyezik → nincs teendő
+//  - van eredmény és eltér → csak az ablakon belül korrigálunk (időbélyeg nélküli régi
+//    adatot is korrigálunk, és felhúzzuk rá az időbélyeget)
+function planResultUpdate(existing, res, nowMs, windowMs) {
+  if (!existing || existing.resultOverride) return null;
+  if (!res || res.resultHome == null || res.resultAway == null) return null;
+
+  const hasResult = existing.resultHome != null && existing.resultAway != null;
+  const same = hasResult
+    && existing.resultHome === res.resultHome
+    && existing.resultAway === res.resultAway;
+  if (same) return null;
+
+  if (!hasResult) {
+    return {
+      resultHome: res.resultHome,
+      resultAway: res.resultAway,
+      resultSyncedAt: new Date(nowMs).toISOString(),
+      reason: 'new',
+    };
+  }
+
+  const syncedAt = existing.resultSyncedAt ? Date.parse(existing.resultSyncedAt) : NaN;
+  const withinWindow = Number.isNaN(syncedAt) || (nowMs - syncedAt < windowMs);
+  if (!withinWindow) return null;
+
+  const patch = { resultHome: res.resultHome, resultAway: res.resultAway, reason: 'correction' };
+  if (Number.isNaN(syncedAt)) patch.resultSyncedAt = new Date(nowMs).toISOString();
+  return patch;
+}
+
 async function writeLastSync(status, error) {
   const payload = { lastSync: new Date().toISOString(), lastSyncStatus: status };
   if (error) payload.lastSyncError = error.slice(0, 500);
@@ -159,39 +198,12 @@ async function main() {
   }
 
   console.log('Syncing finished match results...');
-  const data = await fetchFromFD(
-    `/competitions/${WC_COMPETITION}/matches?season=${WC_SEASON}&status=FINISHED`
-  );
-  if (!data || !data.matches || data.matches.length === 0) {
-    console.log('No finished matches yet');
-    return;
-  }
-
-  // Batch all updates into a single PATCH
-  const updates = {};
-  for (const m of data.matches) {
-    const existing = matches[m.id];
-    if (!existing || existing.resultOverride) continue;
-    const resultHome = m.score?.fullTime?.home ?? null;
-    const resultAway = m.score?.fullTime?.away ?? null;
-    if (resultHome === null || resultAway === null) continue;
-    if (existing.resultHome === resultHome && existing.resultAway === resultAway) continue;
-    updates[m.id] = { resultHome, resultAway };
-  }
-
-  const count = Object.keys(updates).length;
-  if (count > 0) {
-    // PATCH each match individually (Firebase REST doesn't support deep multi-path batch)
-    for (const [id, result] of Object.entries(updates)) {
-      await fbUpdate(`/matches/${id}`, result);
-    }
-    console.log(`Updated ${count} matches`);
-  } else {
-    console.log('No updates needed');
-  }
 
   // === ÉLŐ (in-play) meccsek: aktuális állás külön `live` mezőbe, a végeredmény érintése nélkül ===
   // Így a kliens élőben mutatja az állást, de a pontozás/tabella csak a végeredménnyel számol.
+  // Ez fut ELŐSZÖR, hogy a végeredmény-író/korrigáló rész (ami a live jelölőt törli a már
+  // befejezett meccseknél) utána tudjon takarítani, ha az ESPN előbb mond "post"-ot, mint
+  // ahogy a football-data IN_PLAY-ről átvált.
   try {
     const allData = await fetchFromFD(`/competitions/${WC_COMPETITION}/matches?season=${WC_SEASON}`);
     if (allData && allData.matches) {
@@ -222,43 +234,74 @@ async function main() {
     console.warn('Live sync skipped:', e.message);
   }
 
-  // === ESPN FALLBACK: a meccs tényleges vége azonnal pontozható legyen ===
-  // A football-data.org ingyenes tier sokszor késve vált FINISHED-re, ezért a végeredmény
-  // (resultHome/resultAway) — amiből a pontozás számol — sokáig hiányzik egy már lejátszott
-  // meccsnél. Az ESPN gyorsabban jelzi a befejezést; ha onnan van végeredmény egy nálunk még
-  // eredmény nélküli (és nem felülírt) meccshez, beírjuk. A football-data marad az elsődleges:
-  // ha később más eredményt ad, a FINISHED-ág felülírja (kivéve resultOverride).
+  // === VÉGEREDMÉNY ÍRÁS + UTÓLAGOS KORREKCIÓ (VAR / visszavont gól) ===
+  //
+  // Probléma, amit ez megold: egy meccs vége felé beírt eredmény (pl. 5-0) később még
+  // változhat, ha egy gólt visszavonnak (4-0). Korábban a végeredményt csak akkor írtuk be,
+  // ha még hiányzott, és utána SOHA nem ellenőriztük újra — így a visszavont gól bent maradt
+  // és elrontotta a pontozást.
+  //
+  // Most: a meccs vége (első eredménykiírás) után még `VERIFY_WINDOW_MS` ideig minden sync
+  // újra összeveti a beírt eredményt a forrással, és eltérés esetén FELÜLÍRJA. Az ablakon túl
+  // az eredményt "lezártnak" tekintjük (forrás-ingadozás ne írja át a régi meccseket).
+  // A kézi felülírást (resultOverride) soha nem bántjuk.
+  //
+  // Forrás-preferencia: ESPN az elsődleges (gyors + pontos a VAR utáni végállásra),
+  // a football-data FINISHED a backup.
+  const VERIFY_WINDOW_MS = 60 * 60 * 1000; // 60 perc a lefújás után
+
+  // football-data FINISHED eredmények
+  const fdFinished = {};
   try {
-    const espn = await fetchEspn();
-    // Csak azokra a meccsekre, amelyeknek MÉG nincs végeredménye és nincs kézi felülírás.
-    const candidates = {};
-    for (const [id, m] of Object.entries(matches)) {
-      if (m.resultOverride) continue;
-      if (m.resultHome != null && m.resultAway != null) continue;
-      if (updates[id]) continue; // ezt a football-data épp most frissítette
-      candidates[id] = m;
-    }
-    const espnResults = espnFinishedResults(espn, candidates);
-    const ids = Object.keys(espnResults);
-    if (ids.length > 0) {
-      for (const id of ids) {
-        await fbUpdate(`/matches/${id}`, espnResults[id]);
-        // A meccs véget ért → a korábbi élő jelölő törlése, ha volt.
-        if (matches[id] && matches[id].live) {
-          await request(`${DB_URL}/matches/${id}/live.json?auth=${dbSecret}`, { method: 'DELETE' });
-        }
-      }
-      console.log(`ESPN fallback: ${ids.length} befejezett meccs eredménye beírva (${ids.join(', ')})`);
-    } else {
-      console.log('ESPN fallback: nincs új befejezett eredmény');
+    const fdData = await fetchFromFD(
+      `/competitions/${WC_COMPETITION}/matches?season=${WC_SEASON}&status=FINISHED`
+    );
+    for (const m of ((fdData && fdData.matches) || [])) {
+      const rh = m.score?.fullTime?.home ?? null;
+      const ra = m.score?.fullTime?.away ?? null;
+      if (rh === null || ra === null) continue;
+      fdFinished[m.id] = { resultHome: rh, resultAway: ra };
     }
   } catch (e) {
-    console.warn('ESPN fallback skipped:', e.message);
+    console.warn('football-data FINISHED fetch skipped:', e.message);
   }
+
+  // ESPN 'post' eredmények — MINDEN meccsre, nem csak a hiányzókra (ez a korrektor).
+  let espnFinished = {};
+  try {
+    const espn = await fetchEspn();
+    espnFinished = espnFinishedResults(espn, matches);
+  } catch (e) {
+    console.warn('ESPN fetch skipped:', e.message);
+  }
+
+  let written = 0, corrected = 0;
+  const nowMs = Date.now();
+  for (const id of Object.keys(matches)) {
+    const res = espnFinished[id] || fdFinished[id] || null; // ESPN elsőbbség
+    const existing = matches[id];
+    const plan = planResultUpdate(existing, res, nowMs, VERIFY_WINDOW_MS);
+    if (!plan) continue;
+
+    const { reason, ...patch } = plan;
+    await fbUpdate(`/matches/${id}`, patch);
+
+    if (reason === 'new') {
+      // A meccs véget ért → a korábbi élő jelölő törlése, ha volt.
+      if (existing.live) {
+        await request(`${DB_URL}/matches/${id}/live.json?auth=${dbSecret}`, { method: 'DELETE' });
+      }
+      written++;
+    } else {
+      console.log(`Korrekció ${id}: ${existing.resultHome}-${existing.resultAway} → ${res.resultHome}-${res.resultAway}`);
+      corrected++;
+    }
+  }
+  console.log(`Végeredmény: ${written} új, ${corrected} korrigálva`);
 }
 
 // Tiszta segédfüggvények exportja teszteléshez (a main() ekkor NEM fut).
-module.exports = { espnFinishedResults, normTeam, pairKey };
+module.exports = { espnFinishedResults, normTeam, pairKey, planResultUpdate };
 
 // Csak közvetlen futtatáskor (node sync-results.js) validálunk és indítjuk a sync-et.
 if (require.main === module) {
