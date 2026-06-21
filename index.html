@@ -509,6 +509,11 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
 .ms-stat-val { font-family: var(--font-display); font-size: 18px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
 .ms-stat-key { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: .05em; }
 .ms-live-note { font-size: 11px; color: var(--danger); font-weight: 600; margin-bottom: 10px; }
+/* Gólszerzők — a gólt szerző csapat alatt (hazai balra, vendég jobbra) */
+.ms-scorers { display: flex; gap: 10px; margin: 6px 0 14px; }
+.ms-scorers-col { flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--text); }
+.ms-scorers-col.away { text-align: right; }
+.ms-scorers-col:empty::after { content: '—'; color: var(--text2); }
 
   </style>
 </head>
@@ -1880,16 +1885,16 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       const liveNote = (live && !hasResult)
         ? `<div class="ms-live-note">&#x25CF; Élő állás szerinti ideiglenes pontok</div>` : '';
 
-      // Gólszerzők (ingyenes élő forrásból, ha elérhető)
+      // Gólszerzők (ingyenes élő forrásból, ha elérhető) — a gólt szerző csapat alatt:
+      // hazai gólok balra, vendég gólok jobbra igazítva.
       let scorersHtml = '';
       if (ov && (ov.scorersHome.length || ov.scorersAway.length)) {
-        const list = [
-          ...ov.scorersHome.map(s => `${getFlag(m.home)}${s}`),
-          ...ov.scorersAway.map(s => `${getFlag(m.away)}${s}`),
-        ];
-        scorersHtml = `<div class="others-tips-title" style="margin-bottom:6px">Gólszerzők</div>
-          <div style="font-size:13px;color:var(--text);margin-bottom:14px;display:flex;flex-direction:column;gap:3px">
-            ${list.map(x => `<div>&#x26BD; ${x}</div>`).join('')}
+        const homeCol = ov.scorersHome.map(s => `<div>&#x26BD; ${s}</div>`).join('');
+        const awayCol = ov.scorersAway.map(s => `<div>${s} &#x26BD;</div>`).join('');
+        scorersHtml = `<div class="others-tips-title" style="margin-bottom:6px;text-align:center">Gólszerzők</div>
+          <div class="ms-scorers">
+            <div class="ms-scorers-col home">${homeCol}</div>
+            <div class="ms-scorers-col away">${awayCol}</div>
           </div>`;
       }
 
