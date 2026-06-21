@@ -762,7 +762,6 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
     let scoreboardView = 'final';    // ranglista al-nézet: 'final' (csak végeredmény) | 'live' (élő ideiglenes pontokkal)
     let matchFilter = 'all';
     const _expandedUsers = new Set();
-    let _adminResultFilter = 'no_result';
     let _registering = false; // regisztráció közben a /users rekord még íródhat
 
     // === SCREEN ROUTER ===
@@ -2399,7 +2398,6 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
 
       const subNav = `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
         <button class="btn btn-primary btn-sm">Felhasználók</button>
-        <button class="btn btn-ghost btn-sm" onclick="renderAdminResults()">Eredmények</button>
         <button class="btn btn-ghost btn-sm" onclick="renderAdminConfig()">Beállítások</button>
         <button class="btn btn-ghost btn-sm" onclick="renderAdminTest()">Teszt</button>
       </div>`;
@@ -2498,101 +2496,6 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       renderAdminUsers();
     }
 
-    // === RENDER: ADMIN - RESULTS ===
-    function renderAdminResults(filter) {
-      if (filter !== undefined) _adminResultFilter = filter;
-      const el = document.getElementById('tab-admin');
-      const subNav = `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-        <button class="btn btn-ghost btn-sm" onclick="renderAdminUsers()">Felhasználók</button>
-        <button class="btn btn-primary btn-sm">Eredmények</button>
-        <button class="btn btn-ghost btn-sm" onclick="renderAdminConfig()">Beállítások</button>
-        <button class="btn btn-ghost btn-sm" onclick="renderAdminTest()">Teszt</button>
-      </div>`;
-
-      const RESULT_FILTERS = [
-        { key: 'no_result', label: 'Nincs eredmény' },
-        { key: 'all', label: 'Összes' },
-        { key: 'override', label: 'Admin override' },
-      ];
-      const filterBar = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
-        ${RESULT_FILTERS.map(f => `<button class="btn btn-sm ${_adminResultFilter===f.key?'btn-primary':'btn-ghost'}" onclick="renderAdminResults('${f.key}')">${f.label}</button>`).join('')}
-      </div>`;
-
-      const sortedMatches = Object.entries(allMatches)
-        .sort(([, a], [, b]) => new Date(a.datetime) - new Date(b.datetime))
-        .filter(([, m]) => {
-          if (_adminResultFilter === 'no_result') return m.resultHome == null || m.resultAway == null;
-          if (_adminResultFilter === 'override') return m.resultOverride;
-          return true;
-        });
-
-      const rows = sortedMatches.map(([id, m]) => {
-        const overrideBadge = m.resultOverride ? `<span class="badge badge-override">Admin</span>` : '';
-        const rH = m.resultHome != null ? m.resultHome : '';
-        const rA = m.resultAway != null ? m.resultAway : '';
-        return `
-          <div class="match-card">
-            <div class="match-meta">
-              <span>${formatDatetime(m.datetime)} &mdash; ${GROUP_LABELS[m.group] || m.group || ''}</span>
-              <span>${overrideBadge}</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-              <span style="flex:1;font-weight:600">${getFlag(m.home)}${m.home || 'TBD'}</span>
-              <div class="result-inputs">
-                <input class="tip-input" type="number" min="0" id="res-h-${id}" value="${rH}" placeholder="&ndash;">
-                <span class="tip-separator">&ndash;</span>
-                <input class="tip-input" type="number" min="0" id="res-a-${id}" value="${rA}" placeholder="&ndash;">
-              </div>
-              <span style="flex:1;font-weight:600;text-align:right">${getFlag(m.away)}${m.away || 'TBD'}</span>
-              <button class="btn btn-primary btn-sm" onclick="saveResultOverride('${id}')">Mentés</button>
-              ${m.resultOverride ? `<button class="btn btn-ghost btn-sm" onclick="clearResultOverride('${id}')">Auto</button>` : ''}
-            </div>
-          </div>`;
-      }).join('');
-
-      el.innerHTML = subNav + `
-        <div class="admin-section">
-          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
-            <h3 style="margin:0">Meccseredmények felülbírálása</h3>
-            <button class="btn btn-sm" style="background:var(--danger);color:#fff" onclick="clearAllResults()">&#x1F5D1; Minden eredmény törlése</button>
-          </div>
-          <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Az "Auto" gombbal visszaállítható az API automatikus szinkronizáció.</p>
-          ${filterBar}
-          ${rows || '<div style="color:var(--text2);font-size:13px;padding:8px 0">Nincs meccs ebben a szűrőben.</div>'}
-        </div>`;
-    }
-
-    async function saveResultOverride(matchId) {
-      const home = parseInt(document.getElementById(`res-h-${matchId}`).value);
-      const away = parseInt(document.getElementById(`res-a-${matchId}`).value);
-      if (isNaN(home) || isNaN(away)) return;
-      const update = { resultHome: home, resultAway: away, resultOverride: true };
-      await fbPatch(`matches/${matchId}`, update);
-      Object.assign(allMatches[matchId], update);
-      renderAdminResults();
-    }
-
-    async function clearResultOverride(matchId) {
-      await fbPatch(`matches/${matchId}`, { resultOverride: false });
-      allMatches[matchId].resultOverride = false;
-      renderAdminResults();
-    }
-
-    async function clearAllResults() {
-      if (!confirm('Biztosan törlöd az összes meccseredményt? Ez nem vonható vissza.')) return;
-      const ids = Object.keys(allMatches);
-      await Promise.all(ids.map(id =>
-        fbPatch(`matches/${id}`, { resultHome: null, resultAway: null, resultOverride: null })
-      ));
-      for (const id of ids) {
-        delete allMatches[id].resultHome;
-        delete allMatches[id].resultAway;
-        delete allMatches[id].resultOverride;
-      }
-      renderAdminResults();
-      renderMatches();
-    }
-
     // === INFO MODAL ===
     function showInfoModal() {
       document.getElementById('info-modal').hidden = false;
@@ -2607,14 +2510,9 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       const el = document.getElementById('tab-admin');
       const subNav = `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
         <button class="btn btn-ghost btn-sm" onclick="renderAdminUsers()">Felhasználók</button>
-        <button class="btn btn-ghost btn-sm" onclick="renderAdminResults()">Eredmények</button>
         <button class="btn btn-primary btn-sm">Beállítások</button>
         <button class="btn btn-ghost btn-sm" onclick="renderAdminTest()">Teszt</button>
       </div>`;
-
-      const allTeamOpts = getAllTeams().map(t =>
-        `<option value="${t}" ${appConfig.tournamentWinner === t ? 'selected' : ''}>${t}</option>`
-      ).join('');
 
       const lastSync = appConfig.lastSync;
       const lastSyncStatus = appConfig.lastSyncStatus || 'ok';
@@ -2645,21 +2543,6 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
           <button class="btn btn-primary btn-sm" onclick="saveApiSettings()">Mentés</button>
           <div id="admin-api-status" style="margin-top:8px;font-size:12px;color:var(--accent2)"></div>
         </div>
-        <div class="admin-section">
-          <h3>VB végső eredmények (pontozáshoz)</h3>
-          <div class="form-group">
-            <label>Gólkirály neve (kis/nagybetű mindegy)</label>
-            <input type="text" id="admin-topscorer" value="${appConfig.topScorer || ''}" placeholder="pl. Kylian Mbappé">
-          </div>
-          <div class="form-group">
-            <label>Végső győztes csapat</label>
-            <select id="admin-winner">
-              <option value="">Válassz...</option>${allTeamOpts}
-            </select>
-          </div>
-          <button class="btn btn-primary btn-sm" onclick="saveTournamentResults()">Mentés</button>
-          <div id="admin-tournament-status" style="margin-top:8px;font-size:12px;color:var(--accent2)"></div>
-        </div>
 `;
 
     }
@@ -2678,16 +2561,6 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
     async function forceSyncAPI() {
       document.getElementById('admin-api-status').textContent = 'A szinkronizálás GitHub Actions-ön fut automatikusan 15 percenként.';
     }
-
-    async function saveTournamentResults() {
-      const topScorer = document.getElementById('admin-topscorer').value.trim();
-      const tournamentWinner = document.getElementById('admin-winner').value;
-      await fbPatch('config', { topScorer, tournamentWinner });
-      appConfig.topScorer = topScorer;
-      appConfig.tournamentWinner = tournamentWinner;
-      document.getElementById('admin-tournament-status').textContent = '&#x2713; Mentve';
-    }
-
 
     // === ADMIN TEST PANEL ===
     const TEST_GROUP_MATCHES = [
@@ -2811,7 +2684,6 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
     function renderAdminTest() {
       const subNav = `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
         <button class="btn btn-ghost btn-sm" onclick="renderAdminUsers()">Felhasználók</button>
-        <button class="btn btn-ghost btn-sm" onclick="renderAdminResults()">Eredmények</button>
         <button class="btn btn-ghost btn-sm" onclick="renderAdminConfig()">Beállítások</button>
         <button class="btn btn-primary btn-sm">Teszt</button>
       </div>`;
