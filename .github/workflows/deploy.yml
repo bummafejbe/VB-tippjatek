@@ -4,21 +4,17 @@ on:
   push:
     branches: [main]
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          projectId: vb-tippjatek-19fda
-          channelId: live
-      - name: Deploy database rules
+      # A firebase-tools CLI-vel deployolunk (hosting + database rules egyben).
+      # Korábban a FirebaseExtended/action-hosting-deploy@v0 akciót használtuk, de az egy
+      # ismert "premature close → retry → a verzió már aktív (400)" versenyhelyzet miatt
+      # pirosra váltott, miközben a hosting valójában kiment — és emiatt a database rules
+      # lépés ki is maradt. A CLI-deploy ezt megbízhatóan, egy lépésben elvégzi.
+      - name: Deploy hosting + database rules
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
@@ -29,4 +25,4 @@ jobs:
             echo "$SA" > /tmp/sa.json
           fi
           export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json
-          npx firebase-tools@latest deploy --only database --project vb-tippjatek-19fda --non-interactive
+          npx firebase-tools@latest deploy --only hosting,database --project vb-tippjatek-19fda --non-interactive
