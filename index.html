@@ -1792,8 +1792,8 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       }
 
       const groupStageHtml = GROUP_STAGES.map((g, i) => renderAccordion(g, i < 2)).filter(Boolean).join('');
-      if (groupStageHtml) html += `<div class="groups-grid">${groupStageHtml}</div>`;
       html += renderKnockoutBracket();
+      if (groupStageHtml) html += `<div class="groups-grid">${groupStageHtml}</div>`;
       el.innerHTML = html;
       startNextMatchWidget();
     }
