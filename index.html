@@ -166,6 +166,7 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
 .badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: .05em; }
 .badge-admin { background: #7c3aed33; color: #a78bfa; }
 .badge-override { background: #ef444433; color: var(--danger); }
+.badge-round { background: #38bdf833; color: var(--accent); }
 
 /* LIVE badge */
 @keyframes live-pulse { 0%,100% { opacity:1; } 50% { opacity:.5; } }
@@ -1778,8 +1779,14 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       // "Következők": időrendben az 5 következő, még el nem indult meccs — tipp leadható.
       if (matchFilter === 'upcoming') {
         const now = new Date();
+        // A kieséses meccsek csapatait feloldjuk, hogy a közelgő listában is a valós
+        // párosítás jelenjen meg (TBD helyett), ahogy a brackten és az élő dobozban.
+        const resolved = resolveBracketTeams();
         const upcoming = Object.entries(allMatches)
-          .map(([id, m]) => ({ id, ...m }))
+          .map(([id, m]) => {
+            const rt = resolved[id];
+            return rt ? { id, ...m, home: rt.home || m.home, away: rt.away || m.away } : { id, ...m };
+          })
           .filter(m => new Date(m.datetime) > now)
           .sort((a, b) => new Date(a.datetime) - new Date(b.datetime))
           .slice(0, 5);
@@ -1868,7 +1875,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       return `
         <div class="match-card${liveClass}${playedClass}${clickable}" data-mid="${match.id}"${cardClick}>
           <div class="match-meta">
-            <span>${formatDatetimeSmart(match.datetime)}</span>
+            <span>${KNOCKOUT_GROUPS.includes(match.group) ? `<span class="badge badge-round">${GROUP_LABELS[match.group] || ''}</span> ` : ''}${formatDatetimeSmart(match.datetime)}</span>
             <span>${overrideBadge}${liveBadge}</span>
           </div>
           <div class="match-teams">
@@ -1968,13 +1975,27 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         <div class="ms-stat"><div class="ms-stat-val">${st.exact}</div><div class="ms-stat-key">Telitalálat</div></div>
         <div class="ms-stat"><div class="ms-stat-val">${st.correct}</div><div class="ms-stat-key">Jó tippek</div></div>
       </div>`;
-      const rowsHtml = st.rows.length
-        ? st.rows.map(r => {
-            const pts = r.pts != null ? ptsBadge(r.pts) : '';
-            const meStyle = r.me ? 'background:var(--surface2);border-radius:6px;padding:3px 6px' : '';
-            return `<div class="other-tip-row" style="${meStyle}"><span>${r.uname}${r.me ? ' <span style="color:var(--text2);font-size:11px">(te)</span>' : ''}</span><span class="other-tip-score">${r.t.home}&ndash;${r.t.away}</span>${pts}</div>`;
-          }).join('')
-        : `<div style="color:var(--text2);font-size:13px;padding:4px 0">Még senki nem tippelt erre a meccsre.</div>`;
+      // A tippek csak a meccs KEZDETÉTŐL láthatók (isMatchLocked = elkezdődött). Előtte
+      // mások tippjei rejtve, csak a sajátod látszik — így a kieséses körökben sem lehet
+      // a kezdés előtt megnézni a többiek tippjeit.
+      const started = isMatchLocked(m);
+      const renderRow = (r) => {
+        const pts = r.pts != null ? ptsBadge(r.pts) : '';
+        const meStyle = r.me ? 'background:var(--surface2);border-radius:6px;padding:3px 6px' : '';
+        return `<div class="other-tip-row" style="${meStyle}"><span>${r.uname}${r.me ? ' <span style="color:var(--text2);font-size:11px">(te)</span>' : ''}</span><span class="other-tip-score">${r.t.home}&ndash;${r.t.away}</span>${pts}</div>`;
+      };
+      let rowsHtml, tipsTitle;
+      if (started) {
+        tipsTitle = `Tippek (${st.count})`;
+        rowsHtml = st.rows.length
+          ? st.rows.map(renderRow).join('')
+          : `<div style="color:var(--text2);font-size:13px;padding:4px 0">Még senki nem tippelt erre a meccsre.</div>`;
+      } else {
+        tipsTitle = 'Tippek';
+        const mine = st.rows.find(r => r.me);
+        rowsHtml = (mine ? renderRow(mine) : '')
+          + `<div style="color:var(--text2);font-size:13px;padding:6px 0">&#x1F512; A többiek tippjei a meccs kezdetekor válnak láthatóvá.</div>`;
+      }
 
       document.getElementById('bracket-modal-content').innerHTML = `
         <div class="bm-round">${roundLabel}</div>
@@ -1987,7 +2008,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         ${liveNote}
         ${scorersHtml}
         ${statGrid}
-        <div class="others-tips-title" style="margin-bottom:6px">Tippek (${st.count})</div>
+        <div class="others-tips-title" style="margin-bottom:6px">${tipsTitle}</div>
         ${rowsHtml}`;
       document.getElementById('bracket-modal').hidden = false;
       _statsModalMatchId = matchId;   // élő meccsnél a poll-ciklus újrarajzolja
