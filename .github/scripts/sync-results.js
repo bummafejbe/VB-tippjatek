@@ -163,6 +163,36 @@ function planResultUpdate(existing, res, nowMs, windowMs) {
   return patch;
 }
 
+// A meccs 90 PERCES (rendes játékidős) eredménye a football-data `score` objektumból.
+// Kieséses meccseknél a `regularTime` a 90 perces állás; a `fullTime` a kumulatív érték,
+// ami a hosszabbítás ÉS a tizenegyes-párbaj góljait is tartalmazza (pl. a hivatalos doksi
+// példájában fullTime 7-6, miközben regularTime 1-1). A szabály a 90 perces eredmény, ezért
+// mindig a regularTime-ot vesszük; ha hiányzik (pl. csoportmeccs, ahol nincs külön bontás),
+// a fullTime ugyanaz a 90 perces állás, így az a fallback.
+function fdRegulationResult(score) {
+  if (!score) return null;
+  const rt = score.regularTime, ft = score.fullTime;
+  const home = (rt && rt.home != null) ? rt.home : (ft ? ft.home : null);
+  const away = (rt && rt.away != null) ? rt.away : (ft ? ft.away : null);
+  if (home == null || away == null) return null;
+  return { resultHome: home, resultAway: away };
+}
+
+// Kieséses (nem csoportköri) meccs-e a DB `group` mező alapján.
+function isKnockoutGroup(group) {
+  return !!group && !String(group).startsWith('GROUP_');
+}
+
+// Melyik forrásból vegyük a tárolandó (pontozandó) 90 perces eredményt?
+//  - csoportkör: ESPN-elsőbbség (gyors, VAR-korrekt), football-data a backup — itt nincs
+//    hosszabbítás, így minden forrás a 90 perces állást adja
+//  - kieséses: KIZÁRÓLAG a football-data regularTime — az ESPN `score` és a fullTime a
+//    hosszabbítás utáni állást adná, a szabály viszont a 90 perces eredmény
+function pickFinalResult(group, espnRes, fdRes) {
+  if (isKnockoutGroup(group)) return fdRes || null;
+  return espnRes || fdRes || null;
+}
+
 async function writeLastSync(status, error) {
   const payload = { lastSync: new Date().toISOString(), lastSyncStatus: status };
   if (error) payload.lastSyncError = error.slice(0, 500);
@@ -182,13 +212,14 @@ async function main() {
     }
     const toWrite = {};
     for (const m of data.matches) {
+      const reg = fdRegulationResult(m.score);
       toWrite[m.id] = {
         home: m.homeTeam?.name || 'TBD',
         away: m.awayTeam?.name || 'TBD',
         datetime: m.utcDate,
         group: m.group || m.stage || 'UNKNOWN',
-        resultHome: m.score?.fullTime?.home ?? null,
-        resultAway: m.score?.fullTime?.away ?? null,
+        resultHome: reg ? reg.resultHome : null,
+        resultAway: reg ? reg.resultAway : null,
         resultOverride: false,
       };
     }
@@ -257,10 +288,9 @@ async function main() {
       `/competitions/${WC_COMPETITION}/matches?season=${WC_SEASON}&status=FINISHED`
     );
     for (const m of ((fdData && fdData.matches) || [])) {
-      const rh = m.score?.fullTime?.home ?? null;
-      const ra = m.score?.fullTime?.away ?? null;
-      if (rh === null || ra === null) continue;
-      fdFinished[m.id] = { resultHome: rh, resultAway: ra };
+      const reg = fdRegulationResult(m.score); // 90 perces állás (kieséseseknél regularTime)
+      if (!reg) continue;
+      fdFinished[m.id] = reg;
     }
   } catch (e) {
     console.warn('football-data FINISHED fetch skipped:', e.message);
@@ -278,8 +308,9 @@ async function main() {
   let written = 0, corrected = 0;
   const nowMs = Date.now();
   for (const id of Object.keys(matches)) {
-    const res = espnFinished[id] || fdFinished[id] || null; // ESPN elsőbbség
     const existing = matches[id];
+    // Csoportkör: ESPN-elsőbbség; kieséses: csak football-data regularTime (90 perc).
+    const res = pickFinalResult(existing.group, espnFinished[id], fdFinished[id]);
     const plan = planResultUpdate(existing, res, nowMs, VERIFY_WINDOW_MS);
     if (!plan) continue;
 
@@ -301,7 +332,7 @@ async function main() {
 }
 
 // Tiszta segédfüggvények exportja teszteléshez (a main() ekkor NEM fut).
-module.exports = { espnFinishedResults, normTeam, pairKey, planResultUpdate };
+module.exports = { espnFinishedResults, normTeam, pairKey, planResultUpdate, fdRegulationResult, isKnockoutGroup, pickFinalResult };
 
 // Csak közvetlen futtatáskor (node sync-results.js) validálunk és indítjuk a sync-et.
 if (require.main === module) {

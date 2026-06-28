@@ -2,7 +2,7 @@
 // Egyszerű, függőség nélküli teszt az ESPN-fallback eredmény-kinyeréshez.
 // Futtatás:  node .github/scripts/sync-results.test.js
 const assert = require('assert');
-const { espnFinishedResults, planResultUpdate } = require('./sync-results.js');
+const { espnFinishedResults, planResultUpdate, fdRegulationResult, isKnockoutGroup, pickFinalResult } = require('./sync-results.js');
 
 let passed = 0;
 function test(name, fn) {
@@ -114,6 +114,59 @@ test('plan: nincs forrás-eredmény (null/hiányos) → nincs teendő', () => {
   const existing = { resultHome: 5, resultAway: 0, resultSyncedAt: minsAgo(5) };
   assert.strictEqual(planResultUpdate(existing, null, NOW, WIN), null);
   assert.strictEqual(planResultUpdate(existing, { resultHome: 4, resultAway: null }, NOW, WIN), null);
+});
+
+// === 90 perces (rendes játékidős) eredmény a kieséses körökben ===
+
+test('fdRegulationResult: csoportmeccs (nincs hosszabbítás) → fullTime', () => {
+  const score = { regularTime: { home: 2, away: 1 }, fullTime: { home: 2, away: 1 } };
+  assert.deepStrictEqual(fdRegulationResult(score), { resultHome: 2, resultAway: 1 });
+});
+
+test('fdRegulationResult: hosszabbításos meccs → a 90 perces regularTime, NEM a fullTime', () => {
+  // 1-1 a 90. percben, 2-1 hosszabbítás után
+  const score = { regularTime: { home: 1, away: 1 }, extraTime: { home: 1, away: 0 }, fullTime: { home: 2, away: 1 } };
+  assert.deepStrictEqual(fdRegulationResult(score), { resultHome: 1, resultAway: 1 });
+});
+
+test('fdRegulationResult: tizenegyes-párbaj → a 90 perces állás (a fullTime a kumulatív)', () => {
+  // hivatalos doksi-példa: regularTime 1-1, penalties 6-5, fullTime 7-6
+  const score = { regularTime: { home: 1, away: 1 }, extraTime: { home: 0, away: 0 }, penalties: { home: 6, away: 5 }, fullTime: { home: 7, away: 6 } };
+  assert.deepStrictEqual(fdRegulationResult(score), { resultHome: 1, resultAway: 1 });
+});
+
+test('fdRegulationResult: regularTime hiányzik → fullTime fallback', () => {
+  assert.deepStrictEqual(fdRegulationResult({ fullTime: { home: 3, away: 0 } }), { resultHome: 3, resultAway: 0 });
+});
+
+test('fdRegulationResult: nincs eredmény → null', () => {
+  assert.strictEqual(fdRegulationResult(null), null);
+  assert.strictEqual(fdRegulationResult({ fullTime: { home: null, away: null } }), null);
+});
+
+test('isKnockoutGroup: GROUP_* nem kieséses, a többi igen', () => {
+  assert.strictEqual(isKnockoutGroup('GROUP_A'), false);
+  assert.strictEqual(isKnockoutGroup('GROUP_L'), false);
+  assert.strictEqual(isKnockoutGroup('LAST_16'), true);
+  assert.strictEqual(isKnockoutGroup('QUARTER_FINALS'), true);
+  assert.strictEqual(isKnockoutGroup('FINAL'), true);
+  assert.strictEqual(isKnockoutGroup(undefined), false);
+});
+
+test('pickFinalResult: csoportkör → ESPN-elsőbbség', () => {
+  const espn = { resultHome: 2, resultAway: 2 };
+  const fd = { resultHome: 1, resultAway: 1 };
+  assert.deepStrictEqual(pickFinalResult('GROUP_C', espn, fd), espn);
+  assert.deepStrictEqual(pickFinalResult('GROUP_C', null, fd), fd); // ESPN hiányzik → FD
+});
+
+test('pickFinalResult: kieséses → KIZÁRÓLAG football-data (ESPN-t figyelmen kívül hagyja)', () => {
+  // ESPN a hosszabbítás utáni 2-1-et adná, FD a 90 perces 1-1-et — a kieséseshez FD kell
+  const espnAfterET = { resultHome: 2, resultAway: 1 };
+  const fdReg = { resultHome: 1, resultAway: 1 };
+  assert.deepStrictEqual(pickFinalResult('LAST_16', espnAfterET, fdReg), fdReg);
+  // ha FD még nincs (a meccs még nincs FINISHED a forrásnál) → ne írjunk ESPN-alapút
+  assert.strictEqual(pickFinalResult('LAST_16', espnAfterET, null), null);
 });
 
 console.log(`\n${passed} teszt sikeres.`);

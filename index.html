@@ -1085,11 +1085,13 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       for (const m of data.matches) {
         const existing = allMatches[m.id];
         if (!existing || existing.resultOverride) continue;
-        if (m.score.fullTime.home === null) continue;
-        const update = {
-          resultHome: m.score.fullTime.home,
-          resultAway: m.score.fullTime.away
-        };
+        // 90 perces (rendes játékidős) állás: kieséseseknél a regularTime, nem a fullTime
+        // (utóbbi a hosszabbítás + tizenegyesek kumulatív értékét is tartalmazza).
+        const rt = m.score && m.score.regularTime, ft = m.score && m.score.fullTime;
+        const rh = (rt && rt.home != null) ? rt.home : (ft ? ft.home : null);
+        const ra = (rt && rt.away != null) ? rt.away : (ft ? ft.away : null);
+        if (rh == null || ra == null) continue;
+        const update = { resultHome: rh, resultAway: ra };
         if (m.homeTeam.name && existing.home !== m.homeTeam.name) update.home = m.homeTeam.name;
         if (m.awayTeam.name && existing.away !== m.awayTeam.name) update.away = m.awayTeam.name;
         await fbPatch(`matches/${m.id}`, update);
