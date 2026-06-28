@@ -1130,8 +1130,60 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       537390:[537387,537388],
     };
 
+    // Valós 2026-os tizenhatoddöntő párosítások (online forrásból, FIFA meccsszám szerint).
+    // FD.org id -> [hazai, vendég]. Az alábbi rendel hozzá minden R32 kártyához valós csapatot;
+    // a további körök győztes-továbbléptetéssel töltődnek (lásd resolveBracketTeams).
+    const REAL_R32 = {
+      537417: ['South Africa', 'Canada'],                 // M73  2A v 2B
+      537415: ['Germany', 'Paraguay'],                    // M74  1E v 3D
+      537418: ['Netherlands', 'Morocco'],                 // M75  1F v 2C
+      537423: ['Brazil', 'Japan'],                        // M76  1C v 2F
+      537416: ['France', 'Sweden'],                       // M77  1I v 3F
+      537424: ['Ivory Coast', 'Norway'],                  // M78  2E v 2I
+      537425: ['Mexico', 'Ecuador'],                      // M79  1A v 3E
+      537426: ['England', 'DR Congo'],                    // M80  1L v 3K
+      537421: ['United States', 'Bosnia and Herzegovina'],// M81  1D v 3B
+      537422: ['Belgium', 'Senegal'],                     // M82  1G v 3I
+      537419: ['Portugal', 'Croatia'],                    // M83  2K v 2L
+      537420: ['Spain', 'Austria'],                       // M84  1H v 2J
+      537429: ['Switzerland', 'Algeria'],                 // M85  1B v 3J
+      537427: ['Argentina', 'Cape Verde'],                // M86  1J v 2H
+      537430: ['Colombia', 'Ghana'],                      // M87  1K v 3L
+      537428: ['Australia', 'Egypt'],                     // M88  2D v 2G
+    };
+
+    // Kiszámolja minden kieséses meccs csapatait: az R32 a REAL_R32-ból jön, a többi kör
+    // a befejezett meccsek győztesét lépteti tovább (a bronzmeccsbe a vesztesek kerülnek).
+    // Csak megjelenítéshez — nem ír a DB-be. Ha egy szülő meccs még nincs lejátszva (vagy
+    // döntetlen => tizenegyesek, gólkülönbségből nem dönthető el), a csapat null marad és a
+    // hívó a DB-beli értékre (m.home/m.away) esik vissza.
+    function resolveBracketTeams() {
+      const res = {};
+      for (const id in REAL_R32) res[id] = { home: REAL_R32[id][0], away: REAL_R32[id][1] };
+
+      const outcome = (id) => {
+        const m = allMatches[id], r = res[id];
+        if (!m || !r || m.resultHome == null || m.resultAway == null) return { win: null, lose: null };
+        if (m.resultHome > m.resultAway) return { win: r.home, lose: r.away };
+        if (m.resultHome < m.resultAway) return { win: r.away, lose: r.home };
+        return { win: null, lose: null }; // döntetlen => tizenegyesek, eredményből nem dönthető el
+      };
+
+      // Győztes-továbbléptetés függőségi sorrendben: R16 -> QF -> SF -> Döntő.
+      const winnerFed = [...BRACKET_R16, ...BRACKET_QF, ...BRACKET_SF, [537390]];
+      for (const [id] of winnerFed) {
+        const c = BRACKET_CONNS[id];
+        if (!c) continue;
+        res[id] = { home: outcome(c[0]).win, away: outcome(c[1]).win };
+      }
+      // Bronzmeccs: a két elődöntő vesztese.
+      res[537389] = { home: outcome(537387).lose, away: outcome(537388).lose };
+      return res;
+    }
+
     function renderKnockoutBracket() {
       const myTips = allTips[currentUser.uid] || {};
+      const resolved = resolveBracketTeams();
       const slotOf = {}, colOf = {};
       const reg = (arr, col) => arr.forEach(([id, slot]) => { slotOf[id] = slot; colOf[id] = col; });
       reg(BRACKET_R32,0); reg(BRACKET_R16,1); reg(BRACKET_QF,2); reg(BRACKET_SF,3);
@@ -1146,8 +1198,11 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         const hasResult = m.resultHome != null && m.resultAway != null;
         const homeScore = hasResult ? m.resultHome : '';
         const awayScore = hasResult ? m.resultAway : '';
-        const home = (m.home && m.home !== 'TBD') ? `${getFlag(m.home)}${m.home}` : `<span class="bk-tbd">TBD</span>`;
-        const away = (m.away && m.away !== 'TBD') ? `${getFlag(m.away)}${m.away}` : `<span class="bk-tbd">TBD</span>`;
+        const rt = resolved[id] || {};
+        const homeName = rt.home || m.home;
+        const awayName = rt.away || m.away;
+        const home = (homeName && homeName !== 'TBD') ? `${getFlag(homeName)}${homeName}` : `<span class="bk-tbd">TBD</span>`;
+        const away = (awayName && awayName !== 'TBD') ? `${getFlag(awayName)}${awayName}` : `<span class="bk-tbd">TBD</span>`;
         const cls = isFinal ? 'bk-card bk-final' : 'bk-card';
         const lbl = label ? `<div class="bk-extra-label" style="left:${x}px;top:${y-14}px">${label}</div>` : '';
         const live = isMatchLive(m);
@@ -1211,6 +1266,9 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       _statsModalMatchId = null;   // bracket-tipp modal — nem a stat-modal
       const locked = isMatchLocked(m);
       const hasResult = m.resultHome != null && m.resultAway != null;
+      const rt = resolveBracketTeams()[matchId] || {};
+      const homeName = rt.home || m.home || 'TBD';
+      const awayName = rt.away || m.away || 'TBD';
       const myTip = (allTips[currentUser.uid] || {})[matchId];
       const roundLabel = GROUP_LABELS[m.group] || m.group || '';
       const resultStr = hasResult ? `${m.resultHome}&ndash;${m.resultAway}` : '&ndash;';
@@ -1257,9 +1315,9 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         <div class="bm-round">${roundLabel}</div>
         <div class="bm-date">${formatDatetimeSmart(m.datetime)}${formatDatetimeSmart(m.datetime) !== formatDatetime(m.datetime) ? ` <span style="color:var(--text2);font-size:11px">(${formatDatetime(m.datetime)})</span>` : ''}</div>
         <div class="bm-teams">
-          <div class="bm-tname">${getFlag(m.home)}${m.home || 'TBD'}</div>
+          <div class="bm-tname">${getFlag(homeName)}${homeName}</div>
           <div class="bm-tscore">${resultStr}</div>
-          <div class="bm-tname away">${getFlag(m.away)}${m.away || 'TBD'}</div>
+          <div class="bm-tname away">${getFlag(awayName)}${awayName}</div>
         </div>
         ${tipHtml}${othersHtml}`;
       document.getElementById('bracket-modal').hidden = false;
@@ -1487,6 +1545,8 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       const uid = currentUser ? currentUser.uid : null;
       const myTips = uid ? (allTips[uid] || {}) : {};
       const all = Object.entries(allMatches).map(([id, m]) => ({ id, ...m }));
+      const resolved = resolveBracketTeams();
+      const nm = (mm) => { const r = resolved[mm.id] || {}; return [r.home || mm.home || 'TBD', r.away || mm.away || 'TBD']; };
 
       let html = '';
 
@@ -1495,12 +1555,13 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         .sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
       for (const m of liveMatches) {
         const [lh, la] = liveScorePair(m);
+        const [lhn, lan] = nm(m);
         html += `<div class="live-box" onclick="openMatchStats('${m.id}')">
           <div class="live-box-head"><span class="live-box-badge">&#x25CF; Élő</span><span class="live-box-min">${liveMinuteStr(m)}</span></div>
           <div class="live-box-teams">
-            <span class="live-box-team">${getFlag(m.home)}${m.home || 'TBD'}</span>
+            <span class="live-box-team">${getFlag(lhn)}${lhn}</span>
             <span class="live-box-score">${lh}&ndash;${la}</span>
-            <span class="live-box-team away">${getFlag(m.away)}${m.away || 'TBD'}</span>
+            <span class="live-box-team away">${getFlag(lan)}${lan}</span>
           </div>
           <div class="live-box-hint">Kattints a statisztikákért &rarr;</div>
         </div>`;
@@ -1526,7 +1587,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
           : `<button class="nmw-jump untipped" onclick="goToMatch('${next.id}')">Még nem tippeltem &mdash; tippelj! &rarr;</button>`;
         html += `<div class="next-match-widget">
           <div class="nmw-label">Következő meccs</div>
-          <div class="nmw-teams">${getFlag(next.home)}${next.home} — ${getFlag(next.away)}${next.away}</div>
+          <div class="nmw-teams">${(() => { const [hn, an] = nm(next); return `${getFlag(hn)}${hn} — ${getFlag(an)}${an}`; })()}</div>
           <div class="nmw-row">
             <div class="nmw-countdown">${countdown}</div>
             ${jumpBtn}
@@ -1879,6 +1940,9 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         ? 'Vége'
         : (live ? `<span style="color:var(--danger);font-weight:700">&#x25CF; Élő &middot; ${liveMinuteStr(mWithId)}</span>` : formatDatetimeSmart(m.datetime));
       const roundLabel = GROUP_LABELS[m.group] || m.group || '';
+      const rt = resolveBracketTeams()[matchId] || {};
+      const homeName = rt.home || m.home || 'TBD';
+      const awayName = rt.away || m.away || 'TBD';
 
       const st = matchTipStats(matchId, scoreH, scoreA);
       const liveNote = (live && !hasResult)
@@ -1914,9 +1978,9 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         <div class="bm-round">${roundLabel}</div>
         <div class="bm-date">${statusLine}</div>
         <div class="bm-teams">
-          <div class="bm-tname">${getFlag(m.home)}${m.home || 'TBD'}</div>
+          <div class="bm-tname">${getFlag(homeName)}${homeName}</div>
           <div class="bm-tscore">${scoreStr}</div>
-          <div class="bm-tname away">${getFlag(m.away)}${m.away || 'TBD'}</div>
+          <div class="bm-tname away">${getFlag(awayName)}${awayName}</div>
         </div>
         ${liveNote}
         ${scorersHtml}
