@@ -11,10 +11,11 @@ function test(name, fn) {
 }
 
 // ESPN scoreboard alak (lecsupaszítva a lényegre)
-function espnEvent(home, away, state, hScore, aScore) {
+// statusName: STATUS_FULL_TIME (90 perc), STATUS_FINAL_AET (hosszabbítás), STATUS_FINAL_PEN (11-esek)
+function espnEvent(home, away, state, hScore, aScore, statusName = 'STATUS_FULL_TIME') {
   return {
     competitions: [{
-      status: { type: { state } }, // pre | in | post
+      status: { type: { state, name: statusName } }, // pre | in | post
       competitors: [
         { homeAway: 'home', score: hScore, team: { id: '1', displayName: home } },
         { homeAway: 'away', score: aScore, team: { id: '2', displayName: away } },
@@ -23,10 +24,22 @@ function espnEvent(home, away, state, hScore, aScore) {
   };
 }
 
-test('befejezett (post) meccs eredménye bekerül', () => {
+test('befejezett (post) meccs eredménye bekerül (rendes játékidő → regulation true)', () => {
   const espn = { events: [espnEvent('Brazil', 'Croatia', 'post', '2', '1')] };
   const matches = { '101': { home: 'Brazil', away: 'Croatia' } };
-  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 2, resultAway: 1 } });
+  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 2, resultAway: 1, regulation: true } });
+});
+
+test('hosszabbítás utáni (AET) post meccs → regulation false (ESPN nem a 90 perces állás)', () => {
+  const espn = { events: [espnEvent('Brazil', 'Croatia', 'post', '2', '1', 'STATUS_FINAL_AET')] };
+  const matches = { '101': { home: 'Brazil', away: 'Croatia' } };
+  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 2, resultAway: 1, regulation: false } });
+});
+
+test('tizenegyes-párbaj (PEN) post meccs → regulation false', () => {
+  const espn = { events: [espnEvent('Brazil', 'Croatia', 'post', '1', '1', 'STATUS_FINAL_PEN')] };
+  const matches = { '101': { home: 'Brazil', away: 'Croatia' } };
+  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 1, resultAway: 1, regulation: false } });
 });
 
 test('élő (in) meccs NEM kerül be — még nincs vége', () => {
@@ -39,13 +52,13 @@ test('felcserélt hazai/vendég oldal — pontszám a mi oldalunkra fordul', () 
   // ESPN szerint Croatia a hazai, nálunk Brazil a hazai
   const espn = { events: [espnEvent('Croatia', 'Brazil', 'post', '1', '2')] };
   const matches = { '101': { home: 'Brazil', away: 'Croatia' } };
-  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 2, resultAway: 1 } });
+  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 2, resultAway: 1, regulation: true } });
 });
 
 test('csapatnév-alias illeszkedik (Czechia vs Czech Republic)', () => {
   const espn = { events: [espnEvent('Czechia', 'Turkey', 'post', '0', '0')] };
   const matches = { '101': { home: 'Czech Republic', away: 'Türkiye' } };
-  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 0, resultAway: 0 } });
+  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 0, resultAway: 0, regulation: true } });
 });
 
 test('nincs ESPN pár — kihagyva', () => {
@@ -160,13 +173,22 @@ test('pickFinalResult: csoportkör → ESPN-elsőbbség', () => {
   assert.deepStrictEqual(pickFinalResult('GROUP_C', null, fd), fd); // ESPN hiányzik → FD
 });
 
-test('pickFinalResult: kieséses → KIZÁRÓLAG football-data (ESPN-t figyelmen kívül hagyja)', () => {
+test('pickFinalResult: kieséses + hosszabbítás (regulation false) → FD regularTime, ESPN-t hagyja', () => {
   // ESPN a hosszabbítás utáni 2-1-et adná, FD a 90 perces 1-1-et — a kieséseshez FD kell
-  const espnAfterET = { resultHome: 2, resultAway: 1 };
+  const espnAfterET = { resultHome: 2, resultAway: 1, regulation: false };
   const fdReg = { resultHome: 1, resultAway: 1 };
   assert.deepStrictEqual(pickFinalResult('LAST_16', espnAfterET, fdReg), fdReg);
-  // ha FD még nincs (a meccs még nincs FINISHED a forrásnál) → ne írjunk ESPN-alapút
+  // ha FD még nincs (a meccs még nincs FINISHED a forrásnál) → ne írjunk hosszabbítás utánit
   assert.strictEqual(pickFinalResult('LAST_16', espnAfterET, null), null);
+});
+
+test('pickFinalResult: kieséses + rendes játékidőben dőlt el (regulation true) → ESPN (gyors, 90 perc)', () => {
+  // Kanada–Dél-Afrika eset: 90+2-ben esett a gól, FT — ESPN score = 90 perces állás.
+  // football-data még nem FINISHED, de az ESPN-t rögtön ki kell írni.
+  const espnReg = { resultHome: 1, resultAway: 0, regulation: true };
+  assert.deepStrictEqual(pickFinalResult('LAST_32', espnReg, null), { resultHome: 1, resultAway: 0 });
+  // ha FD is megvan és egyezik, akkor is jó az ESPN
+  assert.deepStrictEqual(pickFinalResult('LAST_32', espnReg, { resultHome: 1, resultAway: 0 }), { resultHome: 1, resultAway: 0 });
 });
 
 console.log(`\n${passed} teszt sikeres.`);

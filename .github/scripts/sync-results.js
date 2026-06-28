@@ -105,8 +105,13 @@ function espnFinishedResults(espnData, matches) {
     const hC = c.competitors.find(x => x.homeAway === 'home');
     const aC = c.competitors.find(x => x.homeAway === 'away');
     if (!hC || !aC) continue;
-    const state = (c.status && c.status.type) ? c.status.type.state : 'pre'; // pre | in | post
-    byPair[pairKey(hC.team.displayName, aC.team.displayName)] = { hC, aC, state };
+    const type = (c.status && c.status.type) ? c.status.type : {};
+    const state = type.state || 'pre'; // pre | in | post
+    // Rendes játékidőben dőlt el? STATUS_FULL_TIME = 90 perc (a ráadás/hosszabbítás
+    // perceit, pl. 90+2, ez magában foglalja). Hosszabbítás → STATUS_FINAL_AET,
+    // tizenegyesek → STATUS_FINAL_PEN — ezeknél az ESPN score NEM a 90 perces állás.
+    const regulation = type.name === 'STATUS_FULL_TIME';
+    byPair[pairKey(hC.team.displayName, aC.team.displayName)] = { hC, aC, state, regulation };
   }
   const out = {};
   for (const [id, m] of Object.entries(matches || {})) {
@@ -119,7 +124,7 @@ function espnFinishedResults(espnData, matches) {
     const rh = (myHome.score != null && myHome.score !== '') ? parseInt(myHome.score, 10) : null;
     const ra = (myAway.score != null && myAway.score !== '') ? parseInt(myAway.score, 10) : null;
     if (rh === null || ra === null || Number.isNaN(rh) || Number.isNaN(ra)) continue;
-    out[id] = { resultHome: rh, resultAway: ra };
+    out[id] = { resultHome: rh, resultAway: ra, regulation: rec.regulation };
   }
   return out;
 }
@@ -186,10 +191,19 @@ function isKnockoutGroup(group) {
 // Melyik forrásból vegyük a tárolandó (pontozandó) 90 perces eredményt?
 //  - csoportkör: ESPN-elsőbbség (gyors, VAR-korrekt), football-data a backup — itt nincs
 //    hosszabbítás, így minden forrás a 90 perces állást adja
-//  - kieséses: KIZÁRÓLAG a football-data regularTime — az ESPN `score` és a fullTime a
-//    hosszabbítás utáni állást adná, a szabály viszont a 90 perces eredmény
+//  - kieséses:
+//      * ha az ESPN szerint RENDES JÁTÉKIDŐBEN dőlt el (regulation: true, FT), az ESPN
+//        score = a 90 perces állás → azt írjuk (gyors, nem kell a lassú football-data
+//        FINISHED-re várni). Ide tartozik a 90+x ráadásgól is (pl. Kanada 90+2).
+//      * ha hosszabbítás/tizenegyesek voltak (regulation: false), az ESPN score már a
+//        90 perc UTÁNI állás → KIZÁRÓLAG a football-data regularTime számít (a 90 perces).
 function pickFinalResult(group, espnRes, fdRes) {
-  if (isKnockoutGroup(group)) return fdRes || null;
+  if (isKnockoutGroup(group)) {
+    if (espnRes && espnRes.regulation) {
+      return { resultHome: espnRes.resultHome, resultAway: espnRes.resultAway };
+    }
+    return fdRes || null;
+  }
   return espnRes || fdRes || null;
 }
 
