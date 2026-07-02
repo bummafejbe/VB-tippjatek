@@ -2,7 +2,7 @@
 // Egyszerű, függőség nélküli teszt az ESPN-fallback eredmény-kinyeréshez.
 // Futtatás:  node .github/scripts/sync-results.test.js
 const assert = require('assert');
-const { espnFinishedResults, planResultUpdate, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide } = require('./sync-results.js');
+const { espnFinishedResults, planResultUpdate, planKnockoutResult, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide } = require('./sync-results.js');
 
 let passed = 0;
 function test(name, fn) {
@@ -203,6 +203,37 @@ test('pickFinalResult: kieséses + rendes játékidőben dőlt el (regulation tr
   assert.deepStrictEqual(pickFinalResult('LAST_32', espnReg, null), { resultHome: 1, resultAway: 0 });
   // ha FD is megvan és egyezik, akkor is jó az ESPN
   assert.deepStrictEqual(pickFinalResult('LAST_32', espnReg, { resultHome: 1, resultAway: 0 }), { resultHome: 1, resultAway: 0 });
+});
+
+// === planKnockoutResult: 90 perces korrekció window-függetlenül ===
+
+test('planKnockoutResult: beragadt 120 perces eredmény javul (Belgium–Szenegál 3-2 → 2-2) az ablakon TÚL is', () => {
+  const existing = { resultHome: 3, resultAway: 2, resultSyncedAt: minsAgo(600) }; // 10 órája
+  const p = planKnockoutResult(existing, { resultHome: 2, resultAway: 2 }, NOW);
+  assert.strictEqual(p.resultHome, 2);
+  assert.strictEqual(p.resultAway, 2);
+  assert.strictEqual(p.resultSyncedAt, new Date(NOW).toISOString());
+});
+
+test('planKnockoutResult: azonos 90 perces eredmény → nincs teendő (null)', () => {
+  const existing = { resultHome: 2, resultAway: 2, resultSyncedAt: minsAgo(600) };
+  assert.strictEqual(planKnockoutResult(existing, { resultHome: 2, resultAway: 2 }, NOW), null);
+});
+
+test('planKnockoutResult: kézi felülírást (resultOverride) nem bánt (null)', () => {
+  const existing = { resultHome: 3, resultAway: 2, resultOverride: true };
+  assert.strictEqual(planKnockoutResult(existing, { resultHome: 2, resultAway: 2 }, NOW), null);
+});
+
+test('planKnockoutResult: nincs football-data regularTime → nincs teendő (null)', () => {
+  const existing = { resultHome: 3, resultAway: 2 };
+  assert.strictEqual(planKnockoutResult(existing, null, NOW), null);
+});
+
+test('planKnockoutResult: első kiírás (nincs még eredmény) → beírja', () => {
+  const p = planKnockoutResult({ home: 'A', away: 'B' }, { resultHome: 1, resultAway: 1 }, NOW);
+  assert.strictEqual(p.resultHome, 1);
+  assert.strictEqual(p.resultAway, 1);
 });
 
 // === fdWinnerSide: továbbjutó oldala a football-data score.winner mezőjéből ===

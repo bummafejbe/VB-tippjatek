@@ -170,6 +170,23 @@ function planResultUpdate(existing, res, nowMs, windowMs) {
   return patch;
 }
 
+// Kieséses meccs 90 perces (regularTime) eredményének korrekciós terve — az ellenőrzési
+// ablaktól FÜGGETLENÜL. Indok: a football-data regularTime a definitív 90 perces állás, ami
+// a meccs vége után már nem változik (nincs VAR-kockázat a 90 perces eredményre), így a
+// hosszabbítás/tizenegyesek utáni (120 perces) érték is bármikor biztonságosan javítható.
+// Ez a `planResultUpdate` window-korlátja miatt beragadt régi értékeket is helyrehozza
+// (pl. Belgium–Szenegál 3-2 → 2-2). Visszatérés: patch objektum vagy null.
+function planKnockoutResult(existing, reg, nowMs) {
+  if (!existing || existing.resultOverride) return null;
+  if (!reg || reg.resultHome == null || reg.resultAway == null) return null;
+  if (existing.resultHome === reg.resultHome && existing.resultAway === reg.resultAway) return null;
+  return {
+    resultHome: reg.resultHome,
+    resultAway: reg.resultAway,
+    resultSyncedAt: new Date(nowMs).toISOString(),
+  };
+}
+
 // A meccs 90 PERCES (rendes játékidős) eredménye a football-data `score` objektumból.
 // Kieséses meccseknél a `regularTime` a 90 perces állás; a `fullTime` a kumulatív érték,
 // ami a hosszabbítás ÉS a tizenegyes-párbaj góljait is tartalmazza (pl. a hivatalos doksi
@@ -347,6 +364,21 @@ async function main() {
         existing.winner = w;
         console.log(`Továbbjutó ${id}: ${w}`);
       }
+
+      // A 90 perces (regularTime) eredmény definitív rögzítése/korrekciója — window-független.
+      const koPlan = planKnockoutResult(existing, fdFinished[id], nowMs);
+      if (koPlan) {
+        await fbUpdate(`/matches/${id}`, koPlan);
+        console.log(`Kieséses 90p korrekció ${id}: ${existing.resultHome}-${existing.resultAway} → ${koPlan.resultHome}-${koPlan.resultAway}`);
+        existing.resultHome = koPlan.resultHome;
+        existing.resultAway = koPlan.resultAway;
+        existing.resultSyncedAt = koPlan.resultSyncedAt;
+        if (existing.live) {
+          await request(`${DB_URL}/matches/${id}/live.json?auth=${dbSecret}`, { method: 'DELETE' });
+          delete existing.live;
+        }
+        corrected++;
+      }
     }
 
     // Csoportkör: ESPN-elsőbbség; kieséses: csak football-data regularTime (90 perc).
@@ -372,7 +404,7 @@ async function main() {
 }
 
 // Tiszta segédfüggvények exportja teszteléshez (a main() ekkor NEM fut).
-module.exports = { espnFinishedResults, normTeam, pairKey, planResultUpdate, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide };
+module.exports = { espnFinishedResults, normTeam, pairKey, planResultUpdate, planKnockoutResult, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide };
 
 // Csak közvetlen futtatáskor (node sync-results.js) validálunk és indítjuk a sync-et.
 if (require.main === module) {

@@ -1523,8 +1523,10 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         const m = allMatches[_statsModalMatchId];
         if (m && isMatchLive({ id: _statsModalMatchId, ...m })) openMatchStats(_statsModalMatchId);
       }
+      // A ranglistát MINDEN nézetben frissítjük (nem csak az élőben) — az új/korrigált
+      // eredmények (pl. kieséses 90 perces javítás) így manuális újratöltés nélkül látszanak.
       const sbTab = document.getElementById('tab-scoreboard');
-      if (sbTab && !sbTab.hidden && scoreboardView === 'live') {
+      if (sbTab && !sbTab.hidden) {
         const openBd = [...sbTab.querySelectorAll('tr.sb-breakdown.open')].map(r => r.id);
         renderScoreboard();
         openBd.forEach(id => { const r = document.getElementById(id); if (r) r.classList.add('open'); });
