@@ -4,16 +4,26 @@ on:
   push:
     branches: [main]
 
+# Egyszerre csak egy deploy fusson; az újabb push megszakítja a folyamatban lévőt,
+# hogy ne ütközzenek a hosting-kiadások.
+concurrency:
+  group: firebase-deploy
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       # A firebase-tools CLI-vel deployolunk (hosting + database rules egyben).
-      # Korábban a FirebaseExtended/action-hosting-deploy@v0 akciót használtuk, de az egy
-      # ismert "premature close → retry → a verzió már aktív (400)" versenyhelyzet miatt
-      # pirosra váltott, miközben a hosting valójában kiment — és emiatt a database rules
-      # lépés ki is maradt. A CLI-deploy ezt megbízhatóan, egy lépésben elvégzi.
+      #
+      # Ismert versenyhelyzet: a GitHub-runner és a firebasehosting.googleapis.com közötti
+      # kapcsolat néha "premature close"-zal elszáll a hosting-kiadási kérésnél; a kérés
+      # valójában sikerül (az új verzió élesbe kerül), de a retry már "Can't release ...:
+      # supplied version ... is the current active version" (HTTP 400) hibát kap, és a
+      # parancs nem-nulla kóddal lép ki. Ez NEM valódi hiba — a deploy sikeres.
+      #
+      # Ezért: ezt a konkrét üzenetet sikerként kezeljük, minden más hibánál bukunk.
       - name: Deploy hosting + database rules
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
@@ -25,4 +35,18 @@ jobs:
             echo "$SA" > /tmp/sa.json
           fi
           export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json
-          npx firebase-tools@latest deploy --only hosting,database --project vb-tippjatek-19fda --non-interactive
+
+          set +e
+          OUT=$(npx firebase-tools@latest deploy --only hosting,database --project vb-tippjatek-19fda --non-interactive 2>&1)
+          CODE=$?
+          set -e
+          echo "$OUT"
+
+          if [ "$CODE" -ne 0 ]; then
+            if echo "$OUT" | grep -q "is the current active version"; then
+              echo "::warning::A hosting-kiadás 'already active' hibát adott (premature-close retry verseny) — a verzió ténylegesen kiment, sikeresnek tekintjük."
+            else
+              echo "::error::A deploy valódi hibával elszállt (exit $CODE)."
+              exit "$CODE"
+            fi
+          fi
