@@ -14,3 +14,5 @@ jobs:
         env:
           FIREBASE_DB_SECRET: ${{ secrets.FIREBASE_DB_SECRET }}
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+
+# trigger
