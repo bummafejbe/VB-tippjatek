@@ -1,6 +1,8 @@
 name: DIAG temp
 on:
   workflow_dispatch:
+  push:
+    paths: ['.github/workflows/diag.yml']
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 jobs:
