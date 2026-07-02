@@ -1164,12 +1164,28 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       const res = {};
       for (const id in REAL_R32) res[id] = { home: REAL_R32[id][0], away: REAL_R32[id][1] };
 
+      // A továbbjutó oldala: döntetlen 90 percnél (tizenegyesek) a győztes az eredményből nem
+      // dönthető el, ezért a DB-be szinkronizált `winner` mezőt (HOME/AWAY), ill. amíg az meg
+      // nem érkezik, az élő ESPN overlay befejezett meccsének győztesét használjuk.
+      const winnerSideOf = (id) => {
+        const m = allMatches[id];
+        if (m && (m.winner === 'HOME' || m.winner === 'AWAY')) return m.winner;
+        const ov = liveOverlay[id];
+        if (ov && ov.status === 'FINISHED' && (ov.winnerSide === 'HOME' || ov.winnerSide === 'AWAY')) return ov.winnerSide;
+        return null;
+      };
       const outcome = (id) => {
         const m = allMatches[id], r = res[id];
-        if (!m || !r || m.resultHome == null || m.resultAway == null) return { win: null, lose: null };
+        if (!m || !r) return { win: null, lose: null };
+        // Explicit továbbjutó (tizenegyesek / hosszabbítás után is helyes)
+        const w = winnerSideOf(id);
+        if (w === 'HOME') return { win: r.home, lose: r.away };
+        if (w === 'AWAY') return { win: r.away, lose: r.home };
+        // Rendes játékidős döntés az eredményből
+        if (m.resultHome == null || m.resultAway == null) return { win: null, lose: null };
         if (m.resultHome > m.resultAway) return { win: r.home, lose: r.away };
         if (m.resultHome < m.resultAway) return { win: r.away, lose: r.home };
-        return { win: null, lose: null }; // döntetlen => tizenegyesek, eredményből nem dönthető el
+        return { win: null, lose: null };
       };
 
       // Győztes-továbbléptetés függőségi sorrendben: R16 -> QF -> SF -> Döntő.
@@ -1195,12 +1211,20 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       const mkCard = (id, isFinal=false, label='') => {
         const m = allMatches[id];
         if (!m) return '';
+        const mm = { id, ...m };
         const x = colOf[id] * BCOL_W;
         const y = BYC(slotOf[id]) - BCARD_H / 2;
         const hasTip = !!myTips[id];
         const hasResult = m.resultHome != null && m.resultAway != null;
-        const homeScore = hasResult ? m.resultHome : '';
-        const awayScore = hasResult ? m.resultAway : '';
+        const live = isMatchLive(mm);
+        // Eredmény: végeredmény > (rendes játékidős) élő végállás > élő aktuális állás > üres.
+        let homeScore = '', awayScore = '';
+        if (hasResult) { homeScore = m.resultHome; awayScore = m.resultAway; }
+        else {
+          const fin = overlayFinalScore(mm);
+          if (fin) { [homeScore, awayScore] = fin; }
+          else if (live) { [homeScore, awayScore] = liveScorePair(mm); }
+        }
         const rt = resolved[id] || {};
         const homeName = rt.home || m.home;
         const awayName = rt.away || m.away;
@@ -1208,7 +1232,6 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         const away = (awayName && awayName !== 'TBD') ? `${getFlag(awayName)}${awayName}` : `<span class="bk-tbd">TBD</span>`;
         const cls = isFinal ? 'bk-card bk-final' : 'bk-card';
         const lbl = label ? `<div class="bk-extra-label" style="left:${x}px;top:${y-14}px">${label}</div>` : '';
-        const live = isMatchLive(m);
         const liveDot = live ? '<div class="bk-live-dot"></div>' : '';
         return lbl + `<div class="${cls}" data-mid="${id}" style="left:${x}px;top:${y}px" onclick="openBracketModal('${id}')">
           ${hasTip ? '<div class="bk-tipped"></div>' : ''}${liveDot}
@@ -1461,13 +1484,20 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
           if (!rec) continue;
           const myHome = swap ? rec.aC : rec.hC;
           const myAway = swap ? rec.hC : rec.aC;
-          const st = (rec.c.status && rec.c.status.type) ? rec.c.status.type.state : 'pre'; // pre|in|post
-          const status = st === 'post' ? 'FINISHED' : (st === 'in' ? 'LIVE' : 'SCHEDULED');
+          const typeObj = (rec.c.status && rec.c.status.type) ? rec.c.status.type : {};
+          const stState = typeObj.state || 'pre'; // pre|in|post
+          const status = stState === 'post' ? 'FINISHED' : (stState === 'in' ? 'LIVE' : 'SCHEDULED');
+          // Rendes játékidőben dőlt-e el? STATUS_FULL_TIME = 90 perc (a 90+x ráadást is).
+          // Hosszabbítás (STATUS_FINAL_AET) / tizenegyesek (STATUS_FINAL_PEN) esetén az ESPN
+          // végeredménye a 120 perc / pen állás — NEM a 90 perces, így pontozásra nem jó.
+          const regulation = typeObj.name === 'STATUS_FULL_TIME';
+          // Melyik oldal jutott tovább (döntetlen 90 perc + tizenegyesek esetén a bracket-léptetéshez).
+          const winnerSide = myHome.winner ? 'HOME' : (myAway.winner ? 'AWAY' : null);
           const sideById = { [myHome.team.id]: 'H', [myAway.team.id]: 'A' };
           const sc = _espnScorers(rec.c, sideById);
-          const clock = (rec.c.status && (rec.c.status.displayClock || (rec.c.status.type && rec.c.status.type.shortDetail))) || '';
+          const clock = (rec.c.status && (rec.c.status.displayClock || typeObj.shortDetail)) || '';
           overlay[id] = {
-            status,
+            status, regulation, winnerSide,
             home: (myHome.score != null && myHome.score !== '') ? parseInt(myHome.score) : null,
             away: (myAway.score != null && myAway.score !== '') ? parseInt(myAway.score) : null,
             scorersHome: sc.home,
@@ -1537,8 +1567,12 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
     // pont a meccs vége után ~30 mp-en belül megjelenik, nem kell a (throttle-ölt) cronra várni.
     function overlayFinalScore(match) {
       const ov = match.id ? liveOverlay[match.id] : null;
-      if (ov && ov.status === 'FINISHED' && ov.home != null && ov.away != null) return [ov.home, ov.away];
-      return null;
+      if (!ov || ov.status !== 'FINISHED' || ov.home == null || ov.away == null) return null;
+      // Kieséses meccsnél az ESPN végeredménye csak akkor a 90 perces (pontozandó) állás,
+      // ha rendes játékidőben dőlt el. Hosszabbítás/tizenegyesek esetén NEM pontozunk belőle
+      // (120 perc / pen állás lenne) — megvárjuk a szerver-szinkron 90 perces eredményét.
+      if (match.group && !String(match.group).startsWith('GROUP_') && !ov.regulation) return null;
+      return [ov.home, ov.away];
     }
 
     function renderNextMatchWidget() {
@@ -2116,6 +2150,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
     // Egy játékos lejátszott-meccs tippjei, legújabb elöl (ranglista részletek + modal).
     function getPlayedTipsForUser(uid) {
       const myTips = allTips[uid] || {};
+      const resolved = resolveBracketTeams();
       const out = [];
       for (const [matchId, match] of Object.entries(allMatches)) {
         let rH, rA;
@@ -2128,7 +2163,11 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         }
         const tip = myTips[matchId];
         if (!tip) continue;
-        out.push({ matchId, match, tip, rH, rA, pts: calculateMatchPoints(tip, rH, rA) });
+        // Kieséses meccseknél a DB home/away 'TBD' — a valós párosítást feloldjuk (zászlókhoz).
+        const rt = resolved[matchId] || {};
+        const homeName = rt.home || match.home;
+        const awayName = rt.away || match.away;
+        out.push({ matchId, match, tip, rH, rA, homeName, awayName, pts: calculateMatchPoints(tip, rH, rA) });
       }
       out.sort((a, b) => new Date(b.match.datetime) - new Date(a.match.datetime));
       return out;
@@ -2267,8 +2306,10 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       const m = p.match;
       const rH = p.rH != null ? p.rH : m.resultHome;
       const rA = p.rA != null ? p.rA : m.resultAway;
+      const homeName = p.homeName || m.home;
+      const awayName = p.awayName || m.away;
       return `<div style="display:flex;align-items:center;gap:8px;padding:5px 2px;border-top:1px solid var(--border);font-size:12px">
-        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2)">${getFlag(m.home)}${m.home} ${rH}&ndash;${rA} ${getFlag(m.away)}${m.away}</span>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2)">${getFlag(homeName)}${homeName} ${rH}&ndash;${rA} ${getFlag(awayName)}${awayName}</span>
         <span style="color:var(--text);font-weight:700" title="tipp">${p.tip.home}&ndash;${p.tip.away}</span>
         ${ptsBadge(p.pts)}
       </div>`;

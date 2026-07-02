@@ -2,7 +2,7 @@
 // Egyszerű, függőség nélküli teszt az ESPN-fallback eredmény-kinyeréshez.
 // Futtatás:  node .github/scripts/sync-results.test.js
 const assert = require('assert');
-const { espnFinishedResults, planResultUpdate, fdRegulationResult, isKnockoutGroup, pickFinalResult } = require('./sync-results.js');
+const { espnFinishedResults, planResultUpdate, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide } = require('./sync-results.js');
 
 let passed = 0;
 function test(name, fn) {
@@ -12,13 +12,13 @@ function test(name, fn) {
 
 // ESPN scoreboard alak (lecsupaszítva a lényegre)
 // statusName: STATUS_FULL_TIME (90 perc), STATUS_FINAL_AET (hosszabbítás), STATUS_FINAL_PEN (11-esek)
-function espnEvent(home, away, state, hScore, aScore, statusName = 'STATUS_FULL_TIME') {
+function espnEvent(home, away, state, hScore, aScore, statusName = 'STATUS_FULL_TIME', winnerSide = null) {
   return {
     competitions: [{
       status: { type: { state, name: statusName } }, // pre | in | post
       competitors: [
-        { homeAway: 'home', score: hScore, team: { id: '1', displayName: home } },
-        { homeAway: 'away', score: aScore, team: { id: '2', displayName: away } },
+        { homeAway: 'home', score: hScore, team: { id: '1', displayName: home }, winner: winnerSide === 'HOME' },
+        { homeAway: 'away', score: aScore, team: { id: '2', displayName: away }, winner: winnerSide === 'AWAY' },
       ],
     }],
   };
@@ -27,19 +27,33 @@ function espnEvent(home, away, state, hScore, aScore, statusName = 'STATUS_FULL_
 test('befejezett (post) meccs eredménye bekerül (rendes játékidő → regulation true)', () => {
   const espn = { events: [espnEvent('Brazil', 'Croatia', 'post', '2', '1')] };
   const matches = { '101': { home: 'Brazil', away: 'Croatia' } };
-  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 2, resultAway: 1, regulation: true } });
+  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 2, resultAway: 1, regulation: true, winner: null } });
 });
 
 test('hosszabbítás utáni (AET) post meccs → regulation false (ESPN nem a 90 perces állás)', () => {
   const espn = { events: [espnEvent('Brazil', 'Croatia', 'post', '2', '1', 'STATUS_FINAL_AET')] };
   const matches = { '101': { home: 'Brazil', away: 'Croatia' } };
-  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 2, resultAway: 1, regulation: false } });
+  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 2, resultAway: 1, regulation: false, winner: null } });
 });
 
 test('tizenegyes-párbaj (PEN) post meccs → regulation false', () => {
   const espn = { events: [espnEvent('Brazil', 'Croatia', 'post', '1', '1', 'STATUS_FINAL_PEN')] };
   const matches = { '101': { home: 'Brazil', away: 'Croatia' } };
-  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 1, resultAway: 1, regulation: false } });
+  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 1, resultAway: 1, regulation: false, winner: null } });
+});
+
+test('tizenegyes-párbaj (PEN) győztes oldal kinyerése (winner) — döntetlen 90 perc után', () => {
+  // 1-1 a 90. percben, a hazai nyert tizenegyesekkel → winner: HOME (a bracket-léptetéshez)
+  const espn = { events: [espnEvent('Brazil', 'Croatia', 'post', '1', '1', 'STATUS_FINAL_PEN', 'HOME')] };
+  const matches = { '101': { home: 'Brazil', away: 'Croatia' } };
+  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 1, resultAway: 1, regulation: false, winner: 'HOME' } });
+});
+
+test('felcserélt oldal + tizenegyes-győztes → a mi oldalunkra fordul (winner: AWAY)', () => {
+  // ESPN szerint Croatia a hazai és ő nyert; nálunk Croatia a vendég → winner: AWAY
+  const espn = { events: [espnEvent('Croatia', 'Brazil', 'post', '1', '1', 'STATUS_FINAL_PEN', 'HOME')] };
+  const matches = { '101': { home: 'Brazil', away: 'Croatia' } };
+  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 1, resultAway: 1, regulation: false, winner: 'AWAY' } });
 });
 
 test('élő (in) meccs NEM kerül be — még nincs vége', () => {
@@ -52,13 +66,13 @@ test('felcserélt hazai/vendég oldal — pontszám a mi oldalunkra fordul', () 
   // ESPN szerint Croatia a hazai, nálunk Brazil a hazai
   const espn = { events: [espnEvent('Croatia', 'Brazil', 'post', '1', '2')] };
   const matches = { '101': { home: 'Brazil', away: 'Croatia' } };
-  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 2, resultAway: 1, regulation: true } });
+  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 2, resultAway: 1, regulation: true, winner: null } });
 });
 
 test('csapatnév-alias illeszkedik (Czechia vs Czech Republic)', () => {
   const espn = { events: [espnEvent('Czechia', 'Turkey', 'post', '0', '0')] };
   const matches = { '101': { home: 'Czech Republic', away: 'Türkiye' } };
-  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 0, resultAway: 0, regulation: true } });
+  assert.deepStrictEqual(espnFinishedResults(espn, matches), { '101': { resultHome: 0, resultAway: 0, regulation: true, winner: null } });
 });
 
 test('nincs ESPN pár — kihagyva', () => {
@@ -189,6 +203,27 @@ test('pickFinalResult: kieséses + rendes játékidőben dőlt el (regulation tr
   assert.deepStrictEqual(pickFinalResult('LAST_32', espnReg, null), { resultHome: 1, resultAway: 0 });
   // ha FD is megvan és egyezik, akkor is jó az ESPN
   assert.deepStrictEqual(pickFinalResult('LAST_32', espnReg, { resultHome: 1, resultAway: 0 }), { resultHome: 1, resultAway: 0 });
+});
+
+// === fdWinnerSide: továbbjutó oldala a football-data score.winner mezőjéből ===
+
+test('fdWinnerSide: HOME_TEAM → HOME', () => {
+  assert.strictEqual(fdWinnerSide({ winner: 'HOME_TEAM' }), 'HOME');
+});
+
+test('fdWinnerSide: AWAY_TEAM → AWAY', () => {
+  assert.strictEqual(fdWinnerSide({ winner: 'AWAY_TEAM' }), 'AWAY');
+});
+
+test('fdWinnerSide: tizenegyes-győztes is a winner mezőben van (duration PENALTY_SHOOTOUT)', () => {
+  const score = { winner: 'AWAY_TEAM', duration: 'PENALTY_SHOOTOUT', regularTime: { home: 1, away: 1 }, penalties: { home: 4, away: 5 } };
+  assert.strictEqual(fdWinnerSide(score), 'AWAY');
+});
+
+test('fdWinnerSide: DRAW / hiányzó / null → null', () => {
+  assert.strictEqual(fdWinnerSide({ winner: 'DRAW' }), null);
+  assert.strictEqual(fdWinnerSide({}), null);
+  assert.strictEqual(fdWinnerSide(null), null);
 });
 
 console.log(`\n${passed} teszt sikeres.`);

@@ -124,7 +124,9 @@ function espnFinishedResults(espnData, matches) {
     const rh = (myHome.score != null && myHome.score !== '') ? parseInt(myHome.score, 10) : null;
     const ra = (myAway.score != null && myAway.score !== '') ? parseInt(myAway.score, 10) : null;
     if (rh === null || ra === null || Number.isNaN(rh) || Number.isNaN(ra)) continue;
-    out[id] = { resultHome: rh, resultAway: ra, regulation: rec.regulation };
+    // Továbbjutó oldala (a bracket-léptetéshez) — döntetlen 90 percnél a tizenegyes-győztes.
+    const winner = myHome.winner ? 'HOME' : (myAway.winner ? 'AWAY' : null);
+    out[id] = { resultHome: rh, resultAway: ra, regulation: rec.regulation, winner };
   }
   return out;
 }
@@ -181,6 +183,15 @@ function fdRegulationResult(score) {
   const away = (rt && rt.away != null) ? rt.away : (ft ? ft.away : null);
   if (home == null || away == null) return null;
   return { resultHome: home, resultAway: away };
+}
+
+// A továbbjutó oldala a football-data `score.winner` mezőjéből ('HOME'|'AWAY'|null).
+// Kieséses meccsnél ez akkor is helyes, ha a meccs tizenegyesekkel/hosszabbításban dőlt el.
+function fdWinnerSide(score) {
+  if (!score) return null;
+  if (score.winner === 'HOME_TEAM') return 'HOME';
+  if (score.winner === 'AWAY_TEAM') return 'AWAY';
+  return null; // DRAW / hiányzó → nincs továbbjutó (csoportkör vagy még nem dőlt el)
 }
 
 // Kieséses (nem csoportköri) meccs-e a DB `group` mező alapján.
@@ -304,6 +315,7 @@ async function main() {
     for (const m of ((fdData && fdData.matches) || [])) {
       const reg = fdRegulationResult(m.score); // 90 perces állás (kieséseseknél regularTime)
       if (!reg) continue;
+      reg.winner = fdWinnerSide(m.score); // továbbjutó oldala (bracket-léptetéshez)
       fdFinished[m.id] = reg;
     }
   } catch (e) {
@@ -323,6 +335,20 @@ async function main() {
   const nowMs = Date.now();
   for (const id of Object.keys(matches)) {
     const existing = matches[id];
+
+    // Kieséses meccs továbbjutójának oldala (döntetlen 90 percnél tizenegyes-győztes).
+    // A `winner` mezőt a kliens a bracket-léptetéshez használja — a 90 perces eredményből
+    // ez nem dönthető el, ezért külön tároljuk. Az ellenőrzési ablaktól függetlenül
+    // beírjuk/back-filleljük (a győztes utólag nem változik, VAR-kockázat nélkül).
+    if (isKnockoutGroup(existing.group) && !existing.resultOverride) {
+      const w = (espnFinished[id] && espnFinished[id].winner) || (fdFinished[id] && fdFinished[id].winner) || null;
+      if (w && existing.winner !== w) {
+        await fbUpdate(`/matches/${id}`, { winner: w });
+        existing.winner = w;
+        console.log(`Továbbjutó ${id}: ${w}`);
+      }
+    }
+
     // Csoportkör: ESPN-elsőbbség; kieséses: csak football-data regularTime (90 perc).
     const res = pickFinalResult(existing.group, espnFinished[id], fdFinished[id]);
     const plan = planResultUpdate(existing, res, nowMs, VERIFY_WINDOW_MS);
@@ -346,7 +372,7 @@ async function main() {
 }
 
 // Tiszta segédfüggvények exportja teszteléshez (a main() ekkor NEM fut).
-module.exports = { espnFinishedResults, normTeam, pairKey, planResultUpdate, fdRegulationResult, isKnockoutGroup, pickFinalResult };
+module.exports = { espnFinishedResults, normTeam, pairKey, planResultUpdate, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide };
 
 // Csak közvetlen futtatáskor (node sync-results.js) validálunk és indítjuk a sync-et.
 if (require.main === module) {
