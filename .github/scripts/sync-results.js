@@ -9,6 +9,10 @@ const WC_SEASON = '2026';
 // Szerver oldalon nincs CORS-korlát, így innen tudjuk a meccs tényleges végét gyorsabban
 // kiolvasni, mint ahogy a football-data.org FINISHED-re vált.
 const ESPN_API = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard';
+// A summary (event) végpont per-periódusos bontást (linescores) is ad — ebből számoljuk a
+// kieséses meccsek 90 PERCES (rendes játékidős) állását, mert a scoreboard `score` mező a
+// hosszabbítás UTÁNI (120 perces) állás.
+const ESPN_SUMMARY = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary';
 
 const dbSecret = process.env.FIREBASE_DB_SECRET;
 const apiKey = process.env.FOOTBALL_DATA_API_KEY;
@@ -77,6 +81,10 @@ function fetchEspn() {
   return request(ESPN_API, { headers: { 'User-Agent': 'vb-tippjatek-sync' } });
 }
 
+function fetchEspnSummary(eventId) {
+  return request(`${ESPN_SUMMARY}?event=${eventId}`, { headers: { 'User-Agent': 'vb-tippjatek-sync' } });
+}
+
 // --- ESPN csapatnév-normalizálás (a kliens _normTeam/_pairKey pontos megfelelője) ---
 function normTeam(n) {
   if (!n) return '';
@@ -129,6 +137,80 @@ function espnFinishedResults(espnData, matches) {
     out[id] = { resultHome: rh, resultAway: ra, regulation: rec.regulation, winner };
   }
   return out;
+}
+
+// A scoreboard válaszból a BEFEJEZETT (state === 'post') meccsek ESPN esemény-azonosítója és
+// státusza, a mi /matches azonosítóinkra vetítve (sorrend-független párosítással). Ebből tudjuk,
+// mely kieséses meccsekhez kell a summary (linescores) végpontot lekérni a 90 perces állásért.
+// Visszatérés: { matchId: { eventId, statusName } }
+function espnEventIndex(espnData, matches) {
+  const byPair = {};
+  for (const e of ((espnData && espnData.events) || [])) {
+    const c = e.competitions && e.competitions[0];
+    if (!c || !c.competitors) continue;
+    const hC = c.competitors.find(x => x.homeAway === 'home');
+    const aC = c.competitors.find(x => x.homeAway === 'away');
+    if (!hC || !aC) continue;
+    const type = (c.status && c.status.type) || {};
+    byPair[pairKey(hC.team.displayName, aC.team.displayName)] = {
+      eventId: e.id, statusName: type.name || '', state: type.state || 'pre',
+    };
+  }
+  const out = {};
+  for (const [id, m] of Object.entries(matches || {})) {
+    const rec = byPair[pairKey(m.home, m.away)] || byPair[pairKey(m.away, m.home)];
+    if (!rec || rec.state !== 'post' || rec.eventId == null) continue;
+    out[id] = { eventId: rec.eventId, statusName: rec.statusName };
+  }
+  return out;
+}
+
+// Az ESPN summary (event) végpont per-periódusos bontásából (linescores) kiszámolja egy kieséses
+// meccs adatait a mi home/away oldalunkra vetítve (sorrend-függetlenül):
+//   linescores = [1.félidő, 2.félidő, hosszabbítás1, hosszabbítás2, (tizenegyesek)]
+//   - reg (90 PERC, pontozandó)  = 1.félidő + 2.félidő
+//   - et  (120 perc, csak megjelenítés) = a pályán elért végállás (competitor.score); csak AET/PEN-nél
+//   - pen (tizenegyesek, csak megjelenítés) = competitor.shootoutScore; csak ha van
+//   - winner (bracket-léptetéshez) = melyik oldal nyert (competitor.winner)
+// A scoreboard `score` mezője AET/PEN meccsnél a 120 perces állás, ezért 90 percesként NEM
+// használható — erre való ez a linescores-alapú számítás.
+// Visszatérés: { reg:{resultHome,resultAway}, et:{home,away}|null, pen:{home,away}|null, winner } vagy null.
+function espnKnockoutDetail(summaryData, homeName, awayName) {
+  const comp = summaryData && summaryData.header && summaryData.header.competitions && summaryData.header.competitions[0];
+  if (!comp || !comp.competitors) return null;
+  const statusName = (comp.status && comp.status.type && comp.status.type.name) || '';
+  const hC = comp.competitors.find(x => x.homeAway === 'home');
+  const aC = comp.competitors.find(x => x.homeAway === 'away');
+  if (!hC || !aC) return null;
+
+  const pk = pairKey(hC.team.displayName, aC.team.displayName);
+  let myHome, myAway;
+  if (pk === pairKey(homeName, awayName)) { myHome = hC; myAway = aC; }
+  else if (pk === pairKey(awayName, homeName)) { myHome = aC; myAway = hC; }
+  else return null;
+
+  const num = (v) => {
+    if (v == null || v === '') return null;
+    const n = parseInt(v, 10);
+    return Number.isNaN(n) ? null : n;
+  };
+  const reg90 = (c) => {
+    const ls = c.linescores;
+    if (!Array.isArray(ls) || ls.length < 2) return null;
+    const p1 = num(ls[0] && ls[0].displayValue), p2 = num(ls[1] && ls[1].displayValue);
+    if (p1 == null || p2 == null) return null;
+    return p1 + p2;
+  };
+  const rh = reg90(myHome), ra = reg90(myAway);
+  if (rh == null || ra == null) return null;
+
+  const extraTime = statusName === 'STATUS_FINAL_AET' || statusName === 'STATUS_FINAL_PEN';
+  const eh = num(myHome.score), ea = num(myAway.score);
+  const et = (extraTime && eh != null && ea != null) ? { home: eh, away: ea } : null;
+  const ph = num(myHome.shootoutScore), pa = num(myAway.shootoutScore);
+  const pen = (ph != null && pa != null) ? { home: ph, away: pa } : null;
+  const winner = myHome.winner ? 'HOME' : (myAway.winner ? 'AWAY' : null);
+  return { reg: { resultHome: rh, resultAway: ra }, et, pen, winner };
 }
 
 // Tiszta döntésfüggvény: mit írjunk egy meccs eredményébe a forrás (res) alapján?
@@ -340,10 +422,25 @@ async function main() {
   }
 
   // ESPN 'post' eredmények — MINDEN meccsre, nem csak a hiányzókra (ez a korrektor).
-  let espnFinished = {};
+  // Kieséses AET/PEN meccsekhez a summary (linescores) végpontot is lekérjük, hogy a 90 perces
+  // (pontozandó) állást hitelesen megkapjuk (a scoreboard `score` a 120 perces állás).
+  let espnFinished = {}, espnDetail = {};
   try {
     const espn = await fetchEspn();
     espnFinished = espnFinishedResults(espn, matches);
+    const evIndex = espnEventIndex(espn, matches);
+    for (const [id, info] of Object.entries(evIndex)) {
+      const m = matches[id];
+      if (!m || !isKnockoutGroup(m.group)) continue;
+      if (info.statusName !== 'STATUS_FINAL_AET' && info.statusName !== 'STATUS_FINAL_PEN') continue;
+      try {
+        const summary = await fetchEspnSummary(info.eventId);
+        const detail = espnKnockoutDetail(summary, m.home, m.away);
+        if (detail) espnDetail[id] = detail;
+      } catch (e) {
+        console.warn(`ESPN summary ${id} skipped:`, e.message);
+      }
+    }
   } catch (e) {
     console.warn('ESPN fetch skipped:', e.message);
   }
@@ -353,23 +450,40 @@ async function main() {
   for (const id of Object.keys(matches)) {
     const existing = matches[id];
 
-    // Kieséses meccs továbbjutójának oldala (döntetlen 90 percnél tizenegyes-győztes).
-    // A `winner` mezőt a kliens a bracket-léptetéshez használja — a 90 perces eredményből
-    // ez nem dönthető el, ezért külön tároljuk. Az ellenőrzési ablaktól függetlenül
-    // beírjuk/back-filleljük (a győztes utólag nem változik, VAR-kockázat nélkül).
-    if (isKnockoutGroup(existing.group) && !existing.resultOverride) {
-      const w = (espnFinished[id] && espnFinished[id].winner) || (fdFinished[id] && fdFinished[id].winner) || null;
+    // === KIESÉSES MECCS ===
+    // A pontozás mindig a 90 PERCES állás alapján megy; a hosszabbítás/tizenegyesek eredménye
+    // csak megjelenítésre kerül tárolásra (etHome/etAway, penHome/penAway) — pontot nem befolyásol.
+    if (isKnockoutGroup(existing.group)) {
+      if (existing.resultOverride) continue; // kézi felülírás — soha nem nyúlunk hozzá
+
+      const detail = espnDetail[id];
+      const esp = espnFinished[id];
+
+      // Továbbjutó oldala (döntetlen 90 percnél tizenegyes-győztes). A `winner` mezőt a kliens a
+      // bracket-léptetéshez használja — a 90 perces eredményből nem dönthető el, ezért külön
+      // tároljuk. Forrás-prioritás: ESPN summary → ESPN scoreboard → football-data.
+      const w = (detail && detail.winner) || (esp && esp.winner) || (fdFinished[id] && fdFinished[id].winner) || null;
       if (w && existing.winner !== w) {
         await fbUpdate(`/matches/${id}`, { winner: w });
         existing.winner = w;
         console.log(`Továbbjutó ${id}: ${w}`);
       }
 
-      // A 90 perces (regularTime) eredmény definitív rögzítése/korrekciója — window-független.
-      const koPlan = planKnockoutResult(existing, fdFinished[id], nowMs);
+      // 90 perces (pontozandó) állás forrás-prioritása:
+      //  1) hosszabbítás/tizenegyesek → ESPN summary linescores (1.+2. félidő) — hiteles 90'
+      //  2) rendes játékidőben dőlt el → ESPN scoreboard score (gyors, ez már a 90 perces állás)
+      //  3) fallback → football-data regularTime
+      let reg90 = null;
+      if (detail && detail.reg) reg90 = detail.reg;
+      else if (esp && esp.regulation) reg90 = { resultHome: esp.resultHome, resultAway: esp.resultAway };
+      else if (fdFinished[id]) reg90 = fdFinished[id];
+
+      // A 90 perces eredmény definitív rögzítése/korrekciója — window-független (a 90 perces
+      // állás a lefújás után nem változik, így a beragadt 120 perces értéket is helyrehozza).
+      const koPlan = planKnockoutResult(existing, reg90, nowMs);
       if (koPlan) {
         await fbUpdate(`/matches/${id}`, koPlan);
-        console.log(`Kieséses 90p korrekció ${id}: ${existing.resultHome}-${existing.resultAway} → ${koPlan.resultHome}-${koPlan.resultAway}`);
+        console.log(`Kieséses 90p ${id}: ${existing.resultHome}-${existing.resultAway} → ${koPlan.resultHome}-${koPlan.resultAway}`);
         existing.resultHome = koPlan.resultHome;
         existing.resultAway = koPlan.resultAway;
         existing.resultSyncedAt = koPlan.resultSyncedAt;
@@ -379,9 +493,27 @@ async function main() {
         }
         corrected++;
       }
+
+      // Megjelenítendő (NEM pontozott) 120 perces állás és tizenegyesek.
+      if (detail) {
+        const extra = {};
+        if (detail.et && (existing.etHome !== detail.et.home || existing.etAway !== detail.et.away)) {
+          extra.etHome = detail.et.home; extra.etAway = detail.et.away;
+        }
+        if (detail.pen && (existing.penHome !== detail.pen.home || existing.penAway !== detail.pen.away)) {
+          extra.penHome = detail.pen.home; extra.penAway = detail.pen.away;
+        }
+        if (Object.keys(extra).length) {
+          await fbUpdate(`/matches/${id}`, extra);
+          Object.assign(existing, extra);
+          console.log(`Kieséses extra ${id}: ${JSON.stringify(extra)}`);
+        }
+      }
+
+      continue; // a kieséses eredményt itt kezeljük; a generikus (csoportköri) ág kimarad
     }
 
-    // Csoportkör: ESPN-elsőbbség; kieséses: csak football-data regularTime (90 perc).
+    // === CSOPORTKÖR === (ESPN-elsőbbség; nincs hosszabbítás, minden forrás a 90 perces állás)
     const res = pickFinalResult(existing.group, espnFinished[id], fdFinished[id]);
     const plan = planResultUpdate(existing, res, nowMs, VERIFY_WINDOW_MS);
     if (!plan) continue;
@@ -404,7 +536,7 @@ async function main() {
 }
 
 // Tiszta segédfüggvények exportja teszteléshez (a main() ekkor NEM fut).
-module.exports = { espnFinishedResults, normTeam, pairKey, planResultUpdate, planKnockoutResult, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide };
+module.exports = { espnFinishedResults, espnEventIndex, espnKnockoutDetail, normTeam, pairKey, planResultUpdate, planKnockoutResult, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide };
 
 // Csak közvetlen futtatáskor (node sync-results.js) validálunk és indítjuk a sync-et.
 if (require.main === module) {

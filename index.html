@@ -154,6 +154,9 @@ details.group-accordion > .group-body .match-card:last-child { margin-bottom: 0;
 .bm-tname { flex: 1; font-size: 14px; font-weight: 700; }
 .bm-tname.away { text-align: right; }
 .bm-tscore { font-size: 20px; font-weight: 800; color: var(--accent); min-width: 40px; text-align: center; flex-shrink: 0; }
+.bm-extra { margin-top: -8px; margin-bottom: 16px; font-size: 12.5px; color: var(--text2); text-align: center; line-height: 1.5; }
+.bm-extra strong { color: var(--text); }
+.bm-extra-note { font-size: 11px; color: var(--text2); opacity: .85; margin-top: 2px; }
 
 /* Admin */
 .admin-section { margin-bottom: 28px; }
@@ -1299,6 +1302,19 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       const roundLabel = GROUP_LABELS[m.group] || m.group || '';
       const resultStr = hasResult ? `${m.resultHome}&ndash;${m.resultAway}` : '&ndash;';
 
+      // Kieséses meccs hosszabbítás / tizenegyes eredménye — CSAK megjelenítés, a pontozás a
+      // 90 perces állással (resultHome/resultAway) számol.
+      const hasEt = m.etHome != null && m.etAway != null;
+      const hasPen = m.penHome != null && m.penAway != null;
+      let extraHtml = '';
+      if (hasResult && (hasEt || hasPen)) {
+        const parts = [];
+        if (hasEt) parts.push(`Hosszabbítás után <strong>${m.etHome}&ndash;${m.etAway}</strong>`);
+        if (hasPen) parts.push(`tizenegyesek <strong>${m.penHome}&ndash;${m.penAway}</strong>`);
+        extraHtml = `<div class="bm-extra">${parts.join(' &middot; ')}
+          <div class="bm-extra-note">A pontozás a 90 perces eredménnyel (${m.resultHome}&ndash;${m.resultAway}) számol.</div></div>`;
+      }
+
       let tipHtml = '';
       if (!locked) {
         const h = myTip ? myTip.home : '', a = myTip ? myTip.away : '';
@@ -1345,7 +1361,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
           <div class="bm-tscore">${resultStr}</div>
           <div class="bm-tname away">${getFlag(awayName)}${awayName}</div>
         </div>
-        ${tipHtml}${othersHtml}`;
+        ${extraHtml}${tipHtml}${othersHtml}`;
       document.getElementById('bracket-modal').hidden = false;
     }
 

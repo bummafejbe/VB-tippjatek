@@ -2,7 +2,7 @@
 // Egyszerű, függőség nélküli teszt az ESPN-fallback eredmény-kinyeréshez.
 // Futtatás:  node .github/scripts/sync-results.test.js
 const assert = require('assert');
-const { espnFinishedResults, planResultUpdate, planKnockoutResult, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide } = require('./sync-results.js');
+const { espnFinishedResults, espnEventIndex, espnKnockoutDetail, planResultUpdate, planKnockoutResult, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide } = require('./sync-results.js');
 
 let passed = 0;
 function test(name, fn) {
@@ -255,6 +255,93 @@ test('fdWinnerSide: DRAW / hiányzó / null → null', () => {
   assert.strictEqual(fdWinnerSide({ winner: 'DRAW' }), null);
   assert.strictEqual(fdWinnerSide({}), null);
   assert.strictEqual(fdWinnerSide(null), null);
+});
+
+// === espnEventIndex: post meccsek ESPN esemény-azonosítója + státusza ===
+
+function espnEventWithId(id, home, away, state, statusName = 'STATUS_FULL_TIME') {
+  const e = espnEvent(home, away, state, '0', '0', statusName);
+  e.id = id;
+  return e;
+}
+
+test('espnEventIndex: post meccs → eventId + statusName (a mi id-nkre vetítve)', () => {
+  const espn = { events: [espnEventWithId('760500', 'Argentina', 'Cape Verde', 'post', 'STATUS_FINAL_AET')] };
+  const matches = { '537430': { home: 'Argentina', away: 'Cape Verde', group: 'LAST_32' } };
+  assert.deepStrictEqual(espnEventIndex(espn, matches), { '537430': { eventId: '760500', statusName: 'STATUS_FINAL_AET' } });
+});
+
+test('espnEventIndex: felcserélt oldal is illeszkedik', () => {
+  const espn = { events: [espnEventWithId('760500', 'Cape Verde', 'Argentina', 'post', 'STATUS_FINAL_PEN')] };
+  const matches = { '537430': { home: 'Argentina', away: 'Cape Verde', group: 'LAST_32' } };
+  assert.deepStrictEqual(espnEventIndex(espn, matches), { '537430': { eventId: '760500', statusName: 'STATUS_FINAL_PEN' } });
+});
+
+test('espnEventIndex: nem befejezett (in) meccs kimarad', () => {
+  const espn = { events: [espnEventWithId('1', 'A', 'B', 'in')] };
+  assert.deepStrictEqual(espnEventIndex(espn, { '1': { home: 'A', away: 'B' } }), {});
+});
+
+// === espnKnockoutDetail: 90 perces állás a summary linescores-ból ===
+
+// ESPN summary alak: header.competitions[0].competitors[].linescores = [{displayValue},...]
+function espnSummary(home, away, statusName, hLine, aLine, hScore, aScore, hShoot, aShoot, winnerSide) {
+  const mk = (dn, ls, score, shoot, isWin) => ({
+    homeAway: dn === home ? 'home' : 'away',
+    team: { displayName: dn },
+    score: String(score),
+    shootoutScore: shoot == null ? undefined : String(shoot),
+    winner: isWin,
+    linescores: ls.map(v => ({ displayValue: String(v) })),
+  });
+  return {
+    header: { competitions: [{
+      status: { type: { name: statusName } },
+      competitors: [
+        mk(home, hLine, hScore, hShoot, winnerSide === 'HOME'),
+        mk(away, aLine, aScore, aShoot, winnerSide === 'AWAY'),
+      ],
+    }] },
+  };
+}
+
+test('espnKnockoutDetail: AET — 90 perc = 1.+2. félidő, NEM a 120 perces score (Argentína–Zöld-foki 1-1, 3-2)', () => {
+  // linescores: [1.félidő, 2.félidő, hossz1, hossz2]; a valós adat alapján
+  const s = espnSummary('Argentina', 'Cape Verde', 'STATUS_FINAL_AET', [1,0,1,1], [0,1,1,0], 3, 2, null, null, 'HOME');
+  assert.deepStrictEqual(espnKnockoutDetail(s, 'Argentina', 'Cape Verde'), {
+    reg: { resultHome: 1, resultAway: 1 }, et: { home: 3, away: 2 }, pen: null, winner: 'HOME',
+  });
+});
+
+test('espnKnockoutDetail: PEN — 90 perc a linescores-ból, tizenegyesek a shootoutScore-ból', () => {
+  const s = espnSummary('Germany', 'Paraguay', 'STATUS_FINAL_PEN', [0,1,0,0], [1,0,0,0], 1, 1, 3, 4, 'AWAY');
+  assert.deepStrictEqual(espnKnockoutDetail(s, 'Germany', 'Paraguay'), {
+    reg: { resultHome: 1, resultAway: 1 }, et: { home: 1, away: 1 }, pen: { home: 3, away: 4 }, winner: 'AWAY',
+  });
+});
+
+test('espnKnockoutDetail: felcserélt oldal → a mi home/away-ünkre fordul', () => {
+  const s = espnSummary('Cape Verde', 'Argentina', 'STATUS_FINAL_AET', [0,1,1,0], [1,0,1,1], 2, 3, null, null, 'AWAY');
+  assert.deepStrictEqual(espnKnockoutDetail(s, 'Argentina', 'Cape Verde'), {
+    reg: { resultHome: 1, resultAway: 1 }, et: { home: 3, away: 2 }, pen: null, winner: 'HOME',
+  });
+});
+
+test('espnKnockoutDetail: rendes játékidő (FT, 2 periódus) → nincs et/pen', () => {
+  const s = espnSummary('Brazil', 'Haiti', 'STATUS_FULL_TIME', [2,1], [0,0], 3, 0, null, null, 'HOME');
+  assert.deepStrictEqual(espnKnockoutDetail(s, 'Brazil', 'Haiti'), {
+    reg: { resultHome: 3, resultAway: 0 }, et: null, pen: null, winner: 'HOME',
+  });
+});
+
+test('espnKnockoutDetail: hiányzó linescores → null (nem írunk 90 perceset)', () => {
+  const s = espnSummary('A', 'B', 'STATUS_FINAL_AET', [1], [], 2, 1, null, null, null);
+  assert.strictEqual(espnKnockoutDetail(s, 'A', 'B'), null);
+});
+
+test('espnKnockoutDetail: nem illeszkedő pár → null', () => {
+  const s = espnSummary('A', 'B', 'STATUS_FULL_TIME', [1,0], [0,0], 1, 0, null, null, 'HOME');
+  assert.strictEqual(espnKnockoutDetail(s, 'X', 'Y'), null);
 });
 
 console.log(`\n${passed} teszt sikeres.`);
