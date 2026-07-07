@@ -2235,30 +2235,34 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         : '';
 
       if (!open) {
-        // VÉGLEGESEN LEZÁRVA — a bevitt tippek megjelennek, de nem módosíthatók.
-        const roVal = (inner) => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:15px;font-weight:700;color:var(--text)">${inner}</div>`;
-        const tsVal = myPretip.topScorer
-          ? myPretip.topScorer
-          : '<span style="color:var(--text2);font-weight:400">— nincs megadva —</span>';
-        const wVal = myPretip.winner
-          ? `${getFlag(myPretip.winner)}${myPretip.winner}`
-          : '<span style="color:var(--text2);font-weight:400">— nincs megadva —</span>';
+        // VÉGLEGESEN LEZÁRVA — mindenki előzetes tippje nyilvános, két boardban.
+        const me = currentUser.uid;
+        const players = Object.entries(allUsers)
+          .filter(([, u]) => u.status === 'active')
+          .map(([uid, u]) => ({ uid, name: u.displayName || '?', pre: (allPretournament && allPretournament[uid]) || {} }))
+          .sort((a, b) => (a.uid === me ? -1 : b.uid === me ? 1 : a.name.localeCompare(b.name, 'hu')));
+        const noTip = '<span style="color:var(--text2);font-weight:400">&mdash;</span>';
+        const boardHtml = (title, getVal) => `
+          <div class="admin-section">
+            <h3>${title}</h3>
+            ${players.map((p, i) => {
+              const isMe = p.uid === me;
+              const rowStyle = isMe
+                ? 'background:var(--surface2);border:1px solid var(--accent);border-radius:8px;margin-bottom:6px'
+                : (i > 1 ? 'border-top:1px solid var(--border)' : '');
+              return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;font-size:14px;${rowStyle}">
+                <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${isMe ? 'font-weight:700' : ''}">${p.name}${isMe ? ' <span style="color:var(--text2);font-size:11px;font-weight:400">(te)</span>' : ''}</span>
+                <span style="font-weight:700;white-space:nowrap">${getVal(p.pre) || noTip}</span>
+              </div>`;
+            }).join('')}
+          </div>`;
         el.innerHTML = `
           <div style="padding-bottom:80px">
             <div class="card" style="margin-bottom:16px">
-              <div style="font-size:13px;color:var(--text2)">&#x1F512; Az előzetes tippek (gólkirály, végső győztes) le vannak zárva, már nem módosíthatók. A bevitt tipped a VB végén kerül kiértékelésre.</div>
+              <div style="font-size:13px;color:var(--text2)">&#x1F512; Az előzetes tippek (gólkirály, végső győztes) le vannak zárva. Alább mindenki tippje látható — a kiértékelés a VB végén történik.</div>
             </div>
-            <div class="admin-section">
-              <h3>Különleges tippek</h3>
-              <div class="form-group">
-                <label>Gólkirály</label>
-                ${roVal(tsVal)}
-              </div>
-              <div class="form-group">
-                <label>Végső győztes csapat</label>
-                ${roVal(wVal)}
-              </div>
-            </div>
+            ${boardHtml('&#x26BD; Gólkirály-tippek', pre => pre.topScorer || '')}
+            ${boardHtml('&#x1F3C6; VB-győztes-tippek', pre => pre.winner ? `${getFlag(pre.winner)}${pre.winner}` : '')}
           </div>`;
         return;
       }
