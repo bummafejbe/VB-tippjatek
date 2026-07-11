@@ -250,6 +250,21 @@ function espnKnockoutDetail(summaryData, homeName, awayName) {
   return { reg: { resultHome: rh, resultAway: ra }, et, pen, winner };
 }
 
+// Tiszta döntésfüggvény: frissítendők-e a meccs csapatnevei a football-data adatból?
+// KRITIKUS a kieséses meccseknél: a seedeléskor a nevek "TBD"-k, és minden ESPN-párosítás
+// (élő állás, végeredmény, summary 90 perc) csapatnév alapján megy — amíg a DB-ben TBD áll,
+// az ESPN-ből SEMMI nem talál a meccsre. A football-data a párosítás eldőltekor adja a nevet.
+// Visszatérés: { home?, away? } patch vagy null.
+function planNameUpdate(existing, fdMatch) {
+  if (!existing || !fdMatch) return null;
+  const patch = {};
+  const fdHome = fdMatch.homeTeam && fdMatch.homeTeam.name;
+  const fdAway = fdMatch.awayTeam && fdMatch.awayTeam.name;
+  if (fdHome && fdHome !== existing.home) patch.home = fdHome;
+  if (fdAway && fdAway !== existing.away) patch.away = fdAway;
+  return Object.keys(patch).length ? patch : null;
+}
+
 // Tiszta döntésfüggvény: mit írjunk egy meccs eredményébe a forrás (res) alapján?
 // Visszatérés:
 //   null                       → nincs teendő
@@ -412,7 +427,6 @@ async function main() {
   // norvég gól). Emellett ha a football-data még nem váltott IN_PLAY-re (kezdésnél késik),
   // az ESPN szerint élő meccs akkor is kap live mezőt.
   try {
-    const espnLive = espnLiveScores(espnData, matches);
     const fdLive = {};
     let fdListOk = false;
     try {
@@ -420,6 +434,16 @@ async function main() {
       if (allData && allData.matches) {
         fdListOk = true;
         for (const m of allData.matches) {
+          const existing = matches[m.id];
+          if (!existing) continue;
+          // Kieséses csapatnevek szinkronja — e nélkül a lenti ESPN-párosítások (élő állás,
+          // végeredmény, summary) nem találják a meccset ("TBD" a DB-ben).
+          const namePatch = planNameUpdate(existing, m);
+          if (namePatch) {
+            await fbUpdate(`/matches/${m.id}`, namePatch);
+            Object.assign(existing, namePatch);
+            console.log(`Csapatnevek ${m.id}: ${existing.home} vs ${existing.away}`);
+          }
           if (m.status === 'IN_PLAY' || m.status === 'PAUSED') {
             fdLive[m.id] = {
               status: m.status,
@@ -433,6 +457,9 @@ async function main() {
     } catch (e) {
       console.warn('football-data live fetch skipped:', e.message);
     }
+
+    // FONTOS: a névszinkron UTÁN párosítunk az ESPN-nel (a friss nevekkel már talál).
+    const espnLive = espnLiveScores(espnData, matches);
 
     let liveCount = 0;
     for (const id of Object.keys(matches)) {
@@ -603,7 +630,7 @@ async function main() {
 }
 
 // Tiszta segédfüggvények exportja teszteléshez (a main() ekkor NEM fut).
-module.exports = { espnFinishedResults, espnEventIndex, espnKnockoutDetail, espnLiveScores, normTeam, pairKey, planResultUpdate, planKnockoutResult, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide };
+module.exports = { espnFinishedResults, espnEventIndex, espnKnockoutDetail, espnLiveScores, normTeam, pairKey, planNameUpdate, planResultUpdate, planKnockoutResult, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide };
 
 // Csak közvetlen futtatáskor (node sync-results.js) validálunk és indítjuk a sync-et.
 if (require.main === module) {

@@ -2,7 +2,7 @@
 // Egyszerű, függőség nélküli teszt az ESPN-fallback eredmény-kinyeréshez.
 // Futtatás:  node .github/scripts/sync-results.test.js
 const assert = require('assert');
-const { espnFinishedResults, espnEventIndex, espnKnockoutDetail, espnLiveScores, planResultUpdate, planKnockoutResult, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide } = require('./sync-results.js');
+const { espnFinishedResults, espnEventIndex, espnKnockoutDetail, espnLiveScores, planNameUpdate, planResultUpdate, planKnockoutResult, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide } = require('./sync-results.js');
 
 let passed = 0;
 function test(name, fn) {
@@ -90,6 +90,36 @@ test('post, de hiányzó pontszám — kihagyva (nem írunk fél eredményt)', (
 test('üres / hibás ESPN válasz — nem dob, üres eredmény', () => {
   assert.deepStrictEqual(espnFinishedResults({}, { '1': { home: 'A', away: 'B' } }), {});
   assert.deepStrictEqual(espnFinishedResults({ events: [] }, {}), {});
+});
+
+// === planNameUpdate: kieséses csapatnevek szinkronja a football-data listából ===
+// KRITIKUS: az ESPN-párosítás (élő állás, végeredmény, summary 90 perc) csapatnév alapján
+// megy — amíg a DB-ben "TBD" a név, egyik sem talál. A neveket a football-data adja, amint
+// a párosítás eldőlt.
+
+test('planNameUpdate: TBD → valós nevek, amint a football-data tudja őket', () => {
+  const existing = { home: 'TBD', away: 'TBD', group: 'QUARTER_FINALS' };
+  const fd = { homeTeam: { name: 'Norway' }, awayTeam: { name: 'England' } };
+  assert.deepStrictEqual(planNameUpdate(existing, fd), { home: 'Norway', away: 'England' });
+});
+
+test('planNameUpdate: csak az egyik oldal ismert → csak azt írja', () => {
+  const existing = { home: 'TBD', away: 'TBD' };
+  const fd = { homeTeam: { name: 'Norway' }, awayTeam: { name: null } };
+  assert.deepStrictEqual(planNameUpdate(existing, fd), { home: 'Norway' });
+});
+
+test('planNameUpdate: egyező nevek → nincs teendő (null)', () => {
+  const existing = { home: 'Norway', away: 'England' };
+  const fd = { homeTeam: { name: 'Norway' }, awayTeam: { name: 'England' } };
+  assert.strictEqual(planNameUpdate(existing, fd), null);
+});
+
+test('planNameUpdate: football-data még nem tudja (null nevek) → nem írunk TBD-t / nem törlünk', () => {
+  const existing = { home: 'Norway', away: 'England' };
+  const fd = { homeTeam: { name: null }, awayTeam: {} };
+  assert.strictEqual(planNameUpdate(existing, fd), null);
+  assert.strictEqual(planNameUpdate({ home: 'TBD', away: 'TBD' }, {}), null);
 });
 
 // === espnLiveScores: élő (in-play) állás az ESPN scoreboardból — a /matches `live` mező forrása ===

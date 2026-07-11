@@ -500,6 +500,8 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
 .live-box-team.away { text-align: right; }
 .live-box-score { font-family: var(--font-display); font-size: 25px; font-weight: 800; color: var(--danger); min-width: 58px; text-align: center; font-variant-numeric: tabular-nums; }
 .live-box-hint { font-size: 11px; color: var(--text2); margin-top: 7px; }
+.live-box-reg90 { font-size: 12px; font-weight: 700; color: var(--accent); margin-top: 6px; text-align: center; }
+.ms-reg90 { text-align: center; font-size: 13px; font-weight: 700; color: var(--accent); margin: -2px 0 10px; }
 
 /* Next-match widget jump button */
 .nmw-jump { display: inline-flex; align-items: center; gap: 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 7px 13px; font-size: 13px; font-weight: 700; color: var(--text); cursor: pointer; transition: .15s; font-family: var(--font-body); }
@@ -1475,6 +1477,35 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       }
       return { home, away };
     }
+    // ESPN summary (linescores) — a 90 PERCES állás egy hosszabbításba nyúló kieséses meccshez:
+    // linescores = [1.félidő, 2.félidő, hossz1, ...] → 90 perc = ls[0] + ls[1]. A tippek a
+    // 90 percre szólnak, ezért hosszabbítás alatt/után EZ a pontozás alapja, nem az aktuális állás.
+    async function _espnReg90(eventId, swap) {
+      const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary?event=${eventId}`, { cache: 'no-store' });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const comp = data && data.header && data.header.competitions && data.header.competitions[0];
+      if (!comp || !comp.competitors) return null;
+      const hC = comp.competitors.find(x => x.homeAway === 'home');
+      const aC = comp.competitors.find(x => x.homeAway === 'away');
+      if (!hC || !aC) return null;
+      const reg = (c) => {
+        const ls = c.linescores;
+        if (!Array.isArray(ls) || ls.length < 2) return null;
+        const p1 = parseInt(ls[0] && ls[0].displayValue, 10);
+        const p2 = parseInt(ls[1] && ls[1].displayValue, 10);
+        return (Number.isNaN(p1) || Number.isNaN(p2)) ? null : p1 + p2;
+      };
+      const myH = swap ? aC : hC, myA = swap ? hC : aC;
+      const h = reg(myH), a = reg(myA);
+      return (h != null && a != null) ? [h, a] : null;
+    }
+
+    // A 90 percen túl járó (vagy ott véget ért) meccs státuszai — ezeknél az ESPN score már
+    // nem a 90 perces állás.
+    const _BEYOND90_STATUSES = ['STATUS_END_OF_REGULATION', 'STATUS_OVERTIME', 'STATUS_HALFTIME_ET',
+      'STATUS_END_OF_EXTRATIME', 'STATUS_SHOOTOUT', 'STATUS_FINAL_AET', 'STATUS_FINAL_PEN'];
+
     async function refreshLiveOverlay() {
       try {
         const res = await fetch(LIVE_API, { cache: 'no-store' });
@@ -1489,14 +1520,20 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
           const hC = c.competitors.find(x => x.homeAway === 'home');
           const aC = c.competitors.find(x => x.homeAway === 'away');
           if (!hC || !aC) continue;
-          byPair[_pairKey(hC.team.displayName, aC.team.displayName)] = { c, hC, aC };
+          byPair[_pairKey(hC.team.displayName, aC.team.displayName)] = { c, hC, aC, eid: e.id };
         }
+        // A kieséses meccsek DB-beli neve a párosítás eldőltéig 'TBD' — ilyenkor a bracket-ből
+        // feloldott nevekkel párosítunk, különben az ESPN-ben SOHA nem találjuk meg a meccset.
+        const resolved = resolveBracketTeams();
         const overlay = {};
         for (const [id, m] of Object.entries(allMatches)) {
+          const rr = resolved[id] || {};
+          const homeN = (m.home && m.home !== 'TBD') ? m.home : rr.home;
+          const awayN = (m.away && m.away !== 'TBD') ? m.away : rr.away;
           // Sorrend-független párosítás: ha az ESPN a hazai/vendéget fordítva listázza,
           // felcseréljük, hogy a pontszámok a mi m.home/m.away oldalunkra kerüljenek.
-          let rec = byPair[_pairKey(m.home, m.away)], swap = false;
-          if (!rec) { rec = byPair[_pairKey(m.away, m.home)]; swap = true; }
+          let rec = byPair[_pairKey(homeN, awayN)], swap = false;
+          if (!rec) { rec = byPair[_pairKey(awayN, homeN)]; swap = true; }
           if (!rec) continue;
           const myHome = swap ? rec.aC : rec.hC;
           const myAway = swap ? rec.hC : rec.aC;
@@ -1519,7 +1556,23 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
             scorersHome: sc.home,
             scorersAway: sc.away,
             raw: String(clock),
+            _eid: rec.eid, _swap: swap,
+            _statusName: typeObj.name || '', _period: (rec.c.status && rec.c.status.period) || 0,
           };
+        }
+        // 90 percen túl járó kieséses meccsek: a 90 perces (pontozandó) állás a summary
+        // linescores-ból (1.+2. félidő) — az aktuális score itt már a hosszabbításos állás.
+        for (const [id, ov] of Object.entries(overlay)) {
+          const m = allMatches[id];
+          if (!m || !m.group || String(m.group).startsWith('GROUP_')) continue;
+          if (!(ov._period > 2 || _BEYOND90_STATUSES.includes(ov._statusName))) continue;
+          // Ha a szerver már beírta a 90 perces végeredményt, nincs rá szükség.
+          if (ov.status === 'FINISHED' && m.resultHome != null && m.resultAway != null) continue;
+          ov.beyond90 = true;
+          try {
+            const reg = await _espnReg90(ov._eid, ov._swap);
+            if (reg) { ov.reg90Home = reg[0]; ov.reg90Away = reg[1]; }
+          } catch {}
         }
         liveOverlay = overlay;
         renderNextMatchWidget();
@@ -1551,7 +1604,9 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
     function startLiveOverlayPolling() {
       if (_liveOverlayTimer) clearInterval(_liveOverlayTimer);
       refreshLiveOverlay();
-      _liveOverlayTimer = setInterval(refreshLiveOverlay, 30000);
+      // 10 mp — az ESPN végpont kulcs nélküli és bírja ezt a terhelést; így a visszavont
+      // gól (VAR) vagy új gól ~10 mp-en belül átvezet a felületre.
+      _liveOverlayTimer = setInterval(refreshLiveOverlay, 10000);
     }
 
     // === NEXT MATCH + LIVE WIDGETS ===
@@ -1579,6 +1634,15 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       return [h, a];
     }
 
+    // Élő állás a PONTOZÁS nézőpontjából: a tippek a 90 PERCES eredményre szólnak, ezért a
+    // hosszabbításba nyúló kieséses meccsnél a 90 perces állás (summary linescores) számít,
+    // nem az aktuális (hosszabbításos) állás. Amíg a 90 perc le nem jár, a kettő ugyanaz.
+    function liveRegScorePair(match) {
+      const ov = match.id ? liveOverlay[match.id] : null;
+      if (ov && ov.reg90Home != null && ov.reg90Away != null) return [ov.reg90Home, ov.reg90Away];
+      return liveScorePair(match);
+    }
+
     // ESPN szerint a meccs BEFEJEZETT, érvényes végeredménnyel → [home, away], különben null.
     // A befejezett állás stabil (nem változik), ezért a pontozás definitívként veheti már
     // azelőtt, hogy a szerver-szinkron beírná az autoritatív eredményt a /matches-be. Így a
@@ -1587,9 +1651,11 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       const ov = match.id ? liveOverlay[match.id] : null;
       if (!ov || ov.status !== 'FINISHED' || ov.home == null || ov.away == null) return null;
       // Kieséses meccsnél az ESPN végeredménye csak akkor a 90 perces (pontozandó) állás,
-      // ha rendes játékidőben dőlt el. Hosszabbítás/tizenegyesek esetén NEM pontozunk belőle
-      // (120 perc / pen állás lenne) — megvárjuk a szerver-szinkron 90 perces eredményét.
-      if (match.group && !String(match.group).startsWith('GROUP_') && !ov.regulation) return null;
+      // ha rendes játékidőben dőlt el. Hosszabbítás/tizenegyesek esetén a summary-ból számolt
+      // 90 perces állást használjuk, ha megvan — különben megvárjuk a szerver-szinkront.
+      if (match.group && !String(match.group).startsWith('GROUP_') && !ov.regulation) {
+        return (ov.reg90Home != null && ov.reg90Away != null) ? [ov.reg90Home, ov.reg90Away] : null;
+      }
       return [ov.home, ov.away];
     }
 
@@ -1611,6 +1677,11 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       for (const m of liveMatches) {
         const [lh, la] = liveScorePair(m);
         const [lhn, lan] = nm(m);
+        // Hosszabbításban: nagyban az aktuális állás, alatta a 90 perces (a pontozás alapja).
+        const ovm = liveOverlay[m.id];
+        const reg90Line = (ovm && ovm.beyond90 && ovm.reg90Home != null)
+          ? `<div class="live-box-reg90">90 perc: ${ovm.reg90Home}&ndash;${ovm.reg90Away} &middot; a pontozás alapja</div>`
+          : '';
         html += `<div class="live-box" onclick="openMatchStats('${m.id}')">
           <div class="live-box-head"><span class="live-box-badge">&#x25CF; Élő</span><span class="live-box-min">${liveMinuteStr(m)}</span></div>
           <div class="live-box-teams">
@@ -1618,6 +1689,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
             <span class="live-box-score">${lh}&ndash;${la}</span>
             <span class="live-box-team away">${getFlag(lan)}${lan}</span>
           </div>
+          ${reg90Line}
           <div class="live-box-hint">Kattints a statisztikákért &rarr;</div>
         </div>`;
       }
@@ -1993,10 +2065,16 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       const hasResult = m.resultHome != null && m.resultAway != null;
       const ov = liveOverlay[matchId];
       const mWithId = { id: matchId, ...m };
-      let scoreH = null, scoreA = null;
-      if (hasResult) { scoreH = m.resultHome; scoreA = m.resultAway; }
-      else if (live || (ov && ov.home != null)) { [scoreH, scoreA] = liveScorePair(mWithId); }
+      let scoreH = null, scoreA = null; // nagyban mutatott (aktuális) állás
+      let ptsH = null, ptsA = null;     // a pontozás alapja — a 90 perces állás
+      if (hasResult) { scoreH = m.resultHome; scoreA = m.resultAway; ptsH = scoreH; ptsA = scoreA; }
+      else if (live || (ov && ov.home != null)) {
+        [scoreH, scoreA] = liveScorePair(mWithId);
+        [ptsH, ptsA] = liveRegScorePair(mWithId); // hosszabbításban a 90 perces állás
+      }
       const scoreStr = (scoreH != null && scoreA != null) ? `${scoreH}&ndash;${scoreA}` : '&ndash;';
+      const reg90Line = (!hasResult && ov && ov.beyond90 && ov.reg90Home != null)
+        ? `<div class="ms-reg90">90 perc: ${ov.reg90Home}&ndash;${ov.reg90Away} &middot; a pontozás alapja</div>` : '';
       const statusLine = hasResult
         ? 'Vége'
         : (live ? `<span style="color:var(--danger);font-weight:700">&#x25CF; Élő &middot; ${liveMinuteStr(mWithId)}</span>` : formatDatetimeSmart(m.datetime));
@@ -2005,7 +2083,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       const homeName = rt.home || m.home || 'TBD';
       const awayName = rt.away || m.away || 'TBD';
 
-      const st = matchTipStats(matchId, scoreH, scoreA);
+      const st = matchTipStats(matchId, ptsH, ptsA);
       const liveNote = (live && !hasResult)
         ? `<div class="ms-live-note">&#x25CF; Élő állás szerinti ideiglenes pontok</div>` : '';
 
@@ -2057,6 +2135,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
           <div class="bm-tscore">${scoreStr}</div>
           <div class="bm-tname away">${getFlag(awayName)}${awayName}</div>
         </div>
+        ${reg90Line}
         ${liveNote}
         ${scorersHtml}
         ${statGrid}
@@ -2156,7 +2235,8 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
             // A meccsnek ESPN szerint vége van — definitív pont, akkor is, ha a szerver még nem írta be.
             matchPts += calculateMatchPoints(tip, fin[0], fin[1]);
           } else if (includeLive && isMatchLive({ id: matchId, ...match })) {
-            const [lh, la] = liveScorePair({ id: matchId, ...match });
+            // A tippek a 90 percre szólnak → hosszabbításban is a 90 perces állás pontoz.
+            const [lh, la] = liveRegScorePair({ id: matchId, ...match });
             livePts += calculateMatchPoints(tip, lh, la);
           }
         }
