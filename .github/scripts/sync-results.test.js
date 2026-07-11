@@ -2,7 +2,7 @@
 // Egyszerű, függőség nélküli teszt az ESPN-fallback eredmény-kinyeréshez.
 // Futtatás:  node .github/scripts/sync-results.test.js
 const assert = require('assert');
-const { espnFinishedResults, espnEventIndex, espnKnockoutDetail, planResultUpdate, planKnockoutResult, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide } = require('./sync-results.js');
+const { espnFinishedResults, espnEventIndex, espnKnockoutDetail, espnLiveScores, planResultUpdate, planKnockoutResult, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide } = require('./sync-results.js');
 
 let passed = 0;
 function test(name, fn) {
@@ -90,6 +90,69 @@ test('post, de hiányzó pontszám — kihagyva (nem írunk fél eredményt)', (
 test('üres / hibás ESPN válasz — nem dob, üres eredmény', () => {
   assert.deepStrictEqual(espnFinishedResults({}, { '1': { home: 'A', away: 'B' } }), {});
   assert.deepStrictEqual(espnFinishedResults({ events: [] }, {}), {});
+});
+
+// === espnLiveScores: élő (in-play) állás az ESPN scoreboardból — a /matches `live` mező forrása ===
+// Indok: a football-data élő állása VAR / visszavont gól után sokáig rossz maradhat, az ESPN
+// azonnal korrigál → az élő pontszámot ESPN-elsőbbséggel írjuk a DB-be.
+
+function espnLiveEvent(home, away, state, hScore, aScore, statusName = 'STATUS_IN_PROGRESS', displayClock = "37'") {
+  const e = espnEvent(home, away, state, hScore, aScore, statusName);
+  e.competitions[0].status.displayClock = displayClock;
+  return e;
+}
+
+test('espnLiveScores: élő (in) meccs állása bekerül, perc a displayClock-ból', () => {
+  const espn = { events: [espnLiveEvent('Norway', 'England', 'in', '1', '1', 'STATUS_IN_PROGRESS', "37'")] };
+  const matches = { '537387': { home: 'Norway', away: 'England' } };
+  assert.deepStrictEqual(espnLiveScores(espn, matches), {
+    '537387': { home: 1, away: 1, minute: '37', status: 'IN_PLAY' },
+  });
+});
+
+test('espnLiveScores: visszavont gól (VAR) — az ESPN aktuális (csökkentett) állását adja vissza', () => {
+  // 2-1 volt, a gólt visszavonták → az ESPN már 1-1-et mond; ezt kell a DB live-ba írni
+  const espn = { events: [espnLiveEvent('Norway', 'England', 'in', '1', '1', 'STATUS_END_OF_REGULATION', "90'+8'")] };
+  const matches = { '537387': { home: 'Norway', away: 'England' } };
+  assert.deepStrictEqual(espnLiveScores(espn, matches), {
+    '537387': { home: 1, away: 1, minute: '90+8', status: 'IN_PLAY' },
+  });
+});
+
+test('espnLiveScores: felcserélt hazai/vendég oldal — pontszám a mi oldalunkra fordul', () => {
+  const espn = { events: [espnLiveEvent('England', 'Norway', 'in', '2', '0')] };
+  const matches = { '537387': { home: 'Norway', away: 'England' } };
+  assert.deepStrictEqual(espnLiveScores(espn, matches), {
+    '537387': { home: 0, away: 2, minute: '37', status: 'IN_PLAY' },
+  });
+});
+
+test('espnLiveScores: félidő (STATUS_HALFTIME) → PAUSED státusz', () => {
+  const espn = { events: [espnLiveEvent('Norway', 'England', 'in', '1', '0', 'STATUS_HALFTIME', 'HT')] };
+  const matches = { '537387': { home: 'Norway', away: 'England' } };
+  assert.deepStrictEqual(espnLiveScores(espn, matches), {
+    '537387': { home: 1, away: 0, minute: null, status: 'PAUSED' },
+  });
+});
+
+test('espnLiveScores: pre és post meccs kimarad (csak élő)', () => {
+  const espn = { events: [
+    espnLiveEvent('Norway', 'England', 'pre', '0', '0'),
+    espnLiveEvent('Brazil', 'Croatia', 'post', '2', '1'),
+  ] };
+  const matches = { '1': { home: 'Norway', away: 'England' }, '2': { home: 'Brazil', away: 'Croatia' } };
+  assert.deepStrictEqual(espnLiveScores(espn, matches), {});
+});
+
+test('espnLiveScores: hiányzó/érvénytelen pontszám → kihagyva (nem írunk fél állást)', () => {
+  const espn = { events: [espnLiveEvent('Norway', 'England', 'in', '', null)] };
+  const matches = { '1': { home: 'Norway', away: 'England' } };
+  assert.deepStrictEqual(espnLiveScores(espn, matches), {});
+});
+
+test('espnLiveScores: üres / hibás ESPN válasz → nem dob, üres eredmény', () => {
+  assert.deepStrictEqual(espnLiveScores(null, { '1': { home: 'A', away: 'B' } }), {});
+  assert.deepStrictEqual(espnLiveScores({}, { '1': { home: 'A', away: 'B' } }), {});
 });
 
 // === planResultUpdate: végeredmény-írás + utólagos korrekció (VAR) ===

@@ -139,6 +139,43 @@ function espnFinishedResults(espnData, matches) {
   return out;
 }
 
+// Tiszta függvény: az ESPN scoreboard válaszából kinyeri az ÉLŐ (state === 'in') meccsek
+// aktuális állását, a mi /matches csapatneveinkre vetítve (sorrend-független párosítással).
+// Ez a /matches `live` mező ELSŐDLEGES forrása: a football-data élő állása VAR / visszavont
+// gól után sokáig rossz maradhat, az ESPN viszont azonnal korrigál. Csak akkor ad vissza
+// állást, ha mindkét gólszám érvényes szám.
+// Visszatérés: { matchId: { home, away, minute, status } } — status: 'IN_PLAY' | 'PAUSED'
+function espnLiveScores(espnData, matches) {
+  const byPair = {};
+  for (const e of ((espnData && espnData.events) || [])) {
+    const c = e.competitions && e.competitions[0];
+    if (!c || !c.competitors) continue;
+    const hC = c.competitors.find(x => x.homeAway === 'home');
+    const aC = c.competitors.find(x => x.homeAway === 'away');
+    if (!hC || !aC) continue;
+    const type = (c.status && c.status.type) || {};
+    if ((type.state || 'pre') !== 'in') continue; // csak élő meccs
+    const clock = c.status.displayClock || '';
+    // "90'+8'" → "90+8"; ha nincs számjegy (pl. félidőben "HT"), nincs perc
+    const minute = /\d/.test(clock) ? String(clock).replace(/[^0-9+]/g, '') : null;
+    const status = type.name === 'STATUS_HALFTIME' ? 'PAUSED' : 'IN_PLAY';
+    byPair[pairKey(hC.team.displayName, aC.team.displayName)] = { hC, aC, minute, status };
+  }
+  const out = {};
+  for (const [id, m] of Object.entries(matches || {})) {
+    let rec = byPair[pairKey(m.home, m.away)], swap = false;
+    if (!rec) { rec = byPair[pairKey(m.away, m.home)]; swap = true; }
+    if (!rec) continue;
+    const myHome = swap ? rec.aC : rec.hC;
+    const myAway = swap ? rec.hC : rec.aC;
+    const h = (myHome.score != null && myHome.score !== '') ? parseInt(myHome.score, 10) : null;
+    const a = (myAway.score != null && myAway.score !== '') ? parseInt(myAway.score, 10) : null;
+    if (h === null || a === null || Number.isNaN(h) || Number.isNaN(a)) continue;
+    out[id] = { home: h, away: a, minute: rec.minute, status: rec.status };
+  }
+  return out;
+}
+
 // A scoreboard válaszból a BEFEJEZETT (state === 'post') meccsek ESPN esemény-azonosítója és
 // státusza, a mi /matches azonosítóinkra vetítve (sorrend-független párosítással). Ebből tudjuk,
 // mely kieséses meccsekhez kell a summary (linescores) végpontot lekérni a 90 perces állásért.
@@ -354,37 +391,70 @@ async function main() {
 
   console.log('Syncing finished match results...');
 
+  // ESPN scoreboard — EGYSZER kérjük le, ebből dolgozik az élő állás írása (lent) ÉS a
+  // végeredmény-írás/korrekció is (lejjebb).
+  let espnData = null;
+  try {
+    espnData = await fetchEspn();
+  } catch (e) {
+    console.warn('ESPN fetch skipped:', e.message);
+  }
+
   // === ÉLŐ (in-play) meccsek: aktuális állás külön `live` mezőbe, a végeredmény érintése nélkül ===
   // Így a kliens élőben mutatja az állást, de a pontozás/tabella csak a végeredménnyel számol.
   // Ez fut ELŐSZÖR, hogy a végeredmény-író/korrigáló rész (ami a live jelölőt törli a már
   // befejezett meccseknél) utána tudjon takarítani, ha az ESPN előbb mond "post"-ot, mint
   // ahogy a football-data IN_PLAY-ről átvált.
+  //
+  // Pontszám-forrás: ESPN az ELSŐDLEGES, a football-data csak fallback. Indok: VAR-ral
+  // visszavont gól után a football-data élő állása sokáig (akár a meccs végéig) a rossz
+  // értéken ragadhat, az ESPN viszont azonnal korrigál (pl. Norvégia–Anglia: visszavont
+  // norvég gól). Emellett ha a football-data még nem váltott IN_PLAY-re (kezdésnél késik),
+  // az ESPN szerint élő meccs akkor is kap live mezőt.
   try {
-    const allData = await fetchFromFD(`/competitions/${WC_COMPETITION}/matches?season=${WC_SEASON}`);
-    if (allData && allData.matches) {
-      let liveCount = 0;
-      for (const m of allData.matches) {
-        const existing = matches[m.id];
-        if (!existing) continue;
-        const st = m.status;
-        if (st === 'IN_PLAY' || st === 'PAUSED') {
-          await fbUpdate(`/matches/${m.id}`, {
-            live: {
-              status: st,
+    const espnLive = espnLiveScores(espnData, matches);
+    const fdLive = {};
+    let fdListOk = false;
+    try {
+      const allData = await fetchFromFD(`/competitions/${WC_COMPETITION}/matches?season=${WC_SEASON}`);
+      if (allData && allData.matches) {
+        fdListOk = true;
+        for (const m of allData.matches) {
+          if (m.status === 'IN_PLAY' || m.status === 'PAUSED') {
+            fdLive[m.id] = {
+              status: m.status,
               home: m.score?.fullTime?.home ?? 0,
               away: m.score?.fullTime?.away ?? 0,
               minute: m.minute ?? null,
-              updated: new Date().toISOString(),
-            },
-          });
-          liveCount++;
-        } else if (existing.live) {
-          // Már nem él → a korábbi live jelölő törlése
-          await request(`${DB_URL}/matches/${m.id}/live.json?auth=${dbSecret}`, { method: 'DELETE' });
+            };
+          }
         }
       }
-      console.log(`Live in-play matches: ${liveCount}`);
+    } catch (e) {
+      console.warn('football-data live fetch skipped:', e.message);
     }
+
+    let liveCount = 0;
+    for (const id of Object.keys(matches)) {
+      const fd = fdLive[id], esp = espnLive[id];
+      if (fd || esp) {
+        await fbUpdate(`/matches/${id}`, {
+          live: {
+            status: esp ? esp.status : fd.status,
+            home: esp ? esp.home : fd.home,
+            away: esp ? esp.away : fd.away,
+            minute: (esp && esp.minute != null) ? esp.minute : (fd ? fd.minute : null),
+            updated: new Date().toISOString(),
+          },
+        });
+        liveCount++;
+      } else if (matches[id].live && fdListOk) {
+        // Egyik forrás szerint sem él már → a korábbi live jelölő törlése.
+        // (Csak ha a football-data teljes lista megvolt — különben nincs elég információ.)
+        await request(`${DB_URL}/matches/${id}/live.json?auth=${dbSecret}`, { method: 'DELETE' });
+      }
+    }
+    console.log(`Live in-play matches: ${liveCount}`);
   } catch (e) {
     console.warn('Live sync skipped:', e.message);
   }
@@ -425,10 +495,9 @@ async function main() {
   // Kieséses AET/PEN meccsekhez a summary (linescores) végpontot is lekérjük, hogy a 90 perces
   // (pontozandó) állást hitelesen megkapjuk (a scoreboard `score` a 120 perces állás).
   let espnFinished = {}, espnDetail = {};
-  try {
-    const espn = await fetchEspn();
-    espnFinished = espnFinishedResults(espn, matches);
-    const evIndex = espnEventIndex(espn, matches);
+  if (espnData) {
+    espnFinished = espnFinishedResults(espnData, matches);
+    const evIndex = espnEventIndex(espnData, matches);
     for (const [id, info] of Object.entries(evIndex)) {
       const m = matches[id];
       if (!m || !isKnockoutGroup(m.group)) continue;
@@ -441,8 +510,6 @@ async function main() {
         console.warn(`ESPN summary ${id} skipped:`, e.message);
       }
     }
-  } catch (e) {
-    console.warn('ESPN fetch skipped:', e.message);
   }
 
   let written = 0, corrected = 0;
@@ -536,7 +603,7 @@ async function main() {
 }
 
 // Tiszta segédfüggvények exportja teszteléshez (a main() ekkor NEM fut).
-module.exports = { espnFinishedResults, espnEventIndex, espnKnockoutDetail, normTeam, pairKey, planResultUpdate, planKnockoutResult, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide };
+module.exports = { espnFinishedResults, espnEventIndex, espnKnockoutDetail, espnLiveScores, normTeam, pairKey, planResultUpdate, planKnockoutResult, fdRegulationResult, isKnockoutGroup, pickFinalResult, fdWinnerSide };
 
 // Csak közvetlen futtatáskor (node sync-results.js) validálunk és indítjuk a sync-et.
 if (require.main === module) {
