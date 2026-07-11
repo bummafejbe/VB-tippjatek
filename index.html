@@ -1680,7 +1680,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
         // Hosszabbításban: nagyban az aktuális állás, alatta a 90 perces (a pontozás alapja).
         const ovm = liveOverlay[m.id];
         const reg90Line = (ovm && ovm.beyond90 && ovm.reg90Home != null)
-          ? `<div class="live-box-reg90">90 perc: ${ovm.reg90Home}&ndash;${ovm.reg90Away} &middot; a pontozás alapja</div>`
+          ? `<div class="live-box-reg90">90 perc: ${ovm.reg90Home}&ndash;${ovm.reg90Away}</div>`
           : '';
         html += `<div class="live-box" onclick="openMatchStats('${m.id}')">
           <div class="live-box-head"><span class="live-box-badge">&#x25CF; Élő</span><span class="live-box-min">${liveMinuteStr(m)}</span></div>
@@ -2074,7 +2074,7 @@ details.group-accordion[open] > summary { border-bottom: 1px solid var(--border)
       }
       const scoreStr = (scoreH != null && scoreA != null) ? `${scoreH}&ndash;${scoreA}` : '&ndash;';
       const reg90Line = (!hasResult && ov && ov.beyond90 && ov.reg90Home != null)
-        ? `<div class="ms-reg90">90 perc: ${ov.reg90Home}&ndash;${ov.reg90Away} &middot; a pontozás alapja</div>` : '';
+        ? `<div class="ms-reg90">90 perc: ${ov.reg90Home}&ndash;${ov.reg90Away}</div>` : '';
       const statusLine = hasResult
         ? 'Vége'
         : (live ? `<span style="color:var(--danger);font-weight:700">&#x25CF; Élő &middot; ${liveMinuteStr(mWithId)}</span>` : formatDatetimeSmart(m.datetime));
